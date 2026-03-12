@@ -9,8 +9,10 @@ import TodayPage from './pages/TodayPage'
 import GoalsPage from './pages/GoalsPage'
 import ToastContainer from './components/Toast'
 
+const TABS = ['today', 'goals']
+
 export default function App() {
-  const [tab, setTab] = useState('today')
+  const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
 
   const { goals, add, update, remove, setEnabled, reorder, reload: reloadGoals } = useGoals()
@@ -19,28 +21,45 @@ export default function App() {
 
   const currency = settings?.currency || 'NIS'
   const isDev = settings?.app_env === 'DEV'
-  const appTitle = isDev ? 'Goals-DEV' : 'Goals'
+  const appTitle = isDev ? 'Goals DEV' : 'Goals'
 
-  // SSE — real-time sync across devices
   useEvents({ onGoalsChanged: reloadGoals, onLogsChanged: reloadLogs })
 
-  // Update browser tab title
-  useEffect(() => {
-    document.title = appTitle
-  }, [appTitle])
-
-  // Ensure current week is snapshotted on app load
-  useEffect(() => {
-    ensureWeek().catch(() => {})
-  }, [])
+  useEffect(() => { document.title = appTitle }, [appTitle])
+  useEffect(() => { ensureWeek().catch(() => {}) }, [])
 
   const handleTabChange = (newTab) => {
+    if (newTab === tab) return
     setTab(newTab)
-    if (newTab === 'today') {
-      reloadGoals()
-      reloadLogs()
-    }
+    sessionStorage.setItem('goals_tab', newTab)
+    if (newTab === 'today') { reloadGoals(); reloadLogs() }
   }
+
+  // Swipe left/right to switch tabs
+  useEffect(() => {
+    let startX = null, startY = null
+    const onTouchStart = (e) => {
+      startX = e.touches[0].clientX
+      startY = e.touches[0].clientY
+    }
+    const onTouchEnd = (e) => {
+      if (startX === null) return
+      const dx = e.changedTouches[0].clientX - startX
+      const dy = e.changedTouches[0].clientY - startY
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 2) {
+        const cur = TABS.indexOf(tab)
+        if (dx < 0 && cur < TABS.length - 1) handleTabChange(TABS[cur + 1])
+        if (dx > 0 && cur > 0) handleTabChange(TABS[cur - 1])
+      }
+      startX = null; startY = null
+    }
+    document.addEventListener('touchstart', onTouchStart, { passive: true })
+    document.addEventListener('touchend', onTouchEnd, { passive: true })
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [tab])
 
   return (
     <div className="app">

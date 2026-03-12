@@ -13,6 +13,12 @@ const EMPTY = {
 export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete }) {
   const [form, setForm] = useState(EMPTY)
   const [errors, setErrors] = useState([])
+  const [closing, setClosing] = useState(false)
+
+  const handleClose = () => {
+    setClosing(true)
+    setTimeout(onClose, 220)
+  }
 
   useEffect(() => {
     if (goal) setForm({
@@ -105,8 +111,8 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
   }, [onClose])
 
   return (
-    <div className="overlay" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <div className="sheet">
+    <div className={`overlay${closing ? " closing" : ""}`} onMouseDown={e => e.target === e.currentTarget && handleClose()}>
+      <div className={`sheet${closing ? " closing" : ""}`}>
         <div className="sheet-title">
           {goal ? 'Edit Goal' : 'New Goal'}
           {goal && (
@@ -221,7 +227,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
         </div>
 
         <div className="sheet-actions">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-secondary" onClick={handleClose}>Cancel</button>
           <button className="btn-primary" onClick={handleSave}>Save</button>
         </div>
       </div>

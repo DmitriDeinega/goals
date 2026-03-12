@@ -27,7 +27,7 @@ html, body, #root {
 }
 
 body {
-  overflow: hidden;
+  overscroll-behavior-y: contain;
 }
 
 /* App shell */
@@ -475,13 +475,20 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 .drag-handle {
   color: var(--text3);
   cursor: grab;
-  padding: 4px 6px;
+  padding: 8px 14px;
+  margin: -14px -4px -14px -16px;
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1;
   flex-shrink: 0;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
 }
 
 .drag-handle:active { cursor: grabbing; }
@@ -561,6 +568,24 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 @keyframes slideDown {
   from { transform: translateY(-100%); }
   to { transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.overlay.closing {
+  animation: fadeOut 0.22s ease forwards;
+}
+
+.sheet.closing {
+  animation: slideUp 0.22s ease forwards;
 }
 
 .sheet-title {

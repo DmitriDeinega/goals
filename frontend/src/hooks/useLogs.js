@@ -6,22 +6,25 @@ export function useLogs(selectedDate) {
   const [logs, setLogs] = useState([])
   const [weekSummary, setWeekSummary] = useState(null)
 
-  // Week is Sun–Sat (dayjs startOf('week') = Sunday by default)
+  // Selected week (for log rows)
   const weekStart = dayjs(selectedDate).startOf('week')
   const weekEnd = weekStart.add(6, 'day')
 
+  // Current real week (for the "This Week" progress bar — always anchored to today)
   const today = dayjs().format('YYYY-MM-DD')
+  const thisWeekStart = dayjs().startOf('week')
+  const thisWeekEnd = thisWeekStart.add(6, 'day')
 
   const load = useCallback(async () => {
     try {
-      const [logsData, summary, todaySummary] = await Promise.all([
+      const [logsData, summary, thisWeekSummary] = await Promise.all([
         getLogs({ week_start: weekStart.format('YYYY-MM-DD'), week_end: weekEnd.format('YYYY-MM-DD') }),
         getWeekSummary(weekStart.format('YYYY-MM-DD'), weekEnd.format('YYYY-MM-DD'), selectedDate),
-        getWeekSummary(weekStart.format('YYYY-MM-DD'), weekEnd.format('YYYY-MM-DD'), today),
+        getWeekSummary(thisWeekStart.format('YYYY-MM-DD'), thisWeekEnd.format('YYYY-MM-DD'), today),
       ])
       setLogs(logsData)
-      // Use selectedDate summary for row stats (x/y), but today's total_earned for reward
-      setWeekSummary({ ...summary, total_earned: todaySummary.total_earned })
+      // Row stats (x/y) from selected week, progress bar + earned from real current week
+      setWeekSummary({ ...summary, total_earned: thisWeekSummary.total_earned, goals: thisWeekSummary.goals })
     } catch (e) {
       // error already toasted by api layer
     }
