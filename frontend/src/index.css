@@ -296,7 +296,7 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 }
 
 .goal-name.negative {
-  color: var(--text2);
+  color: var(--text);
 }
 
 /* Toggle button */
@@ -1046,7 +1046,7 @@ input[type="number"] { -moz-appearance: textfield; }
 /* ── Toasts ── */
 .toast-container {
   position: fixed;
-  bottom: 24px;
+  top: 24px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;

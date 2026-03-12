@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("goals")
 
 from .database import connect_db, close_db
-from .routers import goals, logs, settings, weeks
+from .routers import goals, logs, settings, weeks, events
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,6 +35,7 @@ app.include_router(goals.router, prefix="/api/goals", tags=["goals"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(weeks.router, prefix="/api/weeks", tags=["weeks"])
+app.include_router(events.router, prefix="/api/events", tags=["events"])
 
 # Serve React frontend
 static_dir = os.path.join(os.path.dirname(__file__), "static")

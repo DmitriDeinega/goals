@@ -4,6 +4,8 @@ from ..database import get_db
 from ..models import LogCreate, LogOut
 from ..time_utils import get_today
 
+from ..broadcaster import broadcast
+
 router = APIRouter()
 logger = logging.getLogger("goals.routers.logs")
 
@@ -54,6 +56,7 @@ async def upsert_log(log: LogCreate):
         )
         if not result:
             result = await db.logs.find_one(filter_q)
+        await broadcast("logs_changed")
         return log_from_doc(result)
     except HTTPException:
         raise

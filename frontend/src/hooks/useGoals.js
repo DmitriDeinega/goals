@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getGoals, createGoal, updateGoal, deleteGoal, setGoalEnabled, reorderGoals } from '../api'
+import { toast } from '../components/Toast'
 
 export function useGoals() {
   const [goals, setGoals] = useState([])
@@ -23,9 +24,18 @@ export function useGoals() {
     await load()
   }
 
+  // data should include version from the caller (GoalsPage tracks it via ref)
   const update = async (id, data) => {
-    await updateGoal(id, data)
-    await load()
+    try {
+      await updateGoal(id, data)
+      await load()
+    } catch (e) {
+      if (e.status === 409) {
+        toast('This goal was updated on another device. Reloading...')
+        await load()
+      }
+      throw e
+    }
   }
 
   const remove = async (id) => {

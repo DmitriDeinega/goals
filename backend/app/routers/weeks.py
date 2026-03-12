@@ -4,6 +4,8 @@ import logging
 from ..database import get_db
 from ..time_utils import get_today, get_week_start
 
+from ..broadcaster import broadcast
+
 router = APIRouter()
 logger = logging.getLogger("goals.routers.weeks")
 
@@ -72,6 +74,7 @@ async def set_goal_enabled(goal_id: str, body: dict):
             upsert=True,
         )
         logger.info(f"Goal {goal_id} enabled={enabled} for week {week_start}")
+        await broadcast("goals_changed")
         return {"goal_id": goal_id, "week_start": week_start, "enabled": enabled}
     except Exception as e:
         logger.error(f"Failed to set goal enabled {goal_id}: {e}")

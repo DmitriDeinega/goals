@@ -31,7 +31,8 @@ class GoalUpdate(BaseModel):
     times_per_day: Optional[int] = None
     reward_rules: Optional[List[RewardRule]] = None
     order: Optional[int] = None
-    active: Optional[bool] = None  # hard delete flag
+    active: Optional[bool] = None
+    version: Optional[int] = None  # for optimistic locking
 
 
 class GoalOut(BaseModel):
@@ -44,7 +45,8 @@ class GoalOut(BaseModel):
     reward_rules: List[RewardRule]
     order: int
     active: bool
-    enabled: bool  # from goal_weeks for current week
+    enabled: bool
+    version: int = 0  # increments on every save
 
 
 class LogCreate(BaseModel):

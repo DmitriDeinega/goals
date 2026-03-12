@@ -4,6 +4,7 @@ import logging
 from ..database import get_db
 from ..models import GoalCreate, GoalUpdate, GoalOut
 from ..time_utils import get_today, get_week_start
+from ..broadcaster import broadcast
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.goals")
@@ -28,6 +29,7 @@ def goal_from_doc(doc, enabled: bool = True) -> GoalOut:
         order=doc.get("order", 0),
         active=doc.get("active", True),
         enabled=enabled,
+        version=doc.get("version", 0),
     )
 
 
@@ -56,11 +58,13 @@ async def create_goal(goal: GoalCreate):
         week_start = get_week_start(today, first_day)
         doc = goal.model_dump()
         doc["active"] = True
+        doc["version"] = 1
         result = await db.goals.insert_one(doc)
         gid = str(result.inserted_id)
         await db.goal_weeks.insert_one({"goal_id": gid, "week_start": week_start, "enabled": True})
         created = await db.goals.find_one({"_id": result.inserted_id})
         logger.info(f"Created goal: {gid} name={goal.name}")
+        await broadcast("goals_changed")
         return goal_from_doc(created, enabled=True)
     except Exception as e:
         logger.error(f"Failed to create goal: {e}")
@@ -71,24 +75,45 @@ async def create_goal(goal: GoalCreate):
 async def update_goal(goal_id: str, goal: GoalUpdate):
     try:
         db = get_db()
+
+        # Optimistic locking — check version if provided
+        client_version = goal.version
+        if client_version is not None:
+            current = await db.goals.find_one({"_id": ObjectId(goal_id)})
+            if not current:
+                raise HTTPException(status_code=404, detail="Goal not found")
+            db_version = current.get("version", 0)
+            if db_version != client_version:
+                logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
+                raise HTTPException(status_code=409, detail="Goal was modified by another session. Please reload.")
+
         update_data = {}
         for k, v in goal.model_dump().items():
+            if k == "version":
+                continue  # don't store client version
             if k in ("reward_rules", "times_per_week", "times_per_day"):
                 if v is not None:
                     update_data[k] = v
             elif v is not None:
                 update_data[k] = v
+
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Increment version on every save
+        update_data["version"] = (client_version if client_version is not None else 0) + 1
+
         await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": update_data})
         updated = await db.goals.find_one({"_id": ObjectId(goal_id)})
         if not updated:
             raise HTTPException(status_code=404, detail="Goal not found")
+
         tz, first_day = await get_settings_cached(db)
         week_start = get_week_start(get_today(tz), first_day)
         entry = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         enabled = entry.get("enabled", True) if entry else True
-        logger.info(f"Updated goal: {goal_id}")
+        logger.info(f"Updated goal: {goal_id} version={update_data['version']}")
+        await broadcast("goals_changed")
         return goal_from_doc(updated, enabled)
     except HTTPException:
         raise
@@ -104,6 +129,7 @@ async def delete_goal(goal_id: str):
         await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": {"active": False}})
         await db.goal_weeks.delete_many({"goal_id": goal_id})
         logger.info(f"Deleted goal: {goal_id}")
+        await broadcast("goals_changed")
         return {"ok": True}
     except Exception as e:
         logger.error(f"Failed to delete goal {goal_id}: {e}")
@@ -116,6 +142,7 @@ async def reorder_goals(goal_ids: list[str]):
         db = get_db()
         for i, gid in enumerate(goal_ids):
             await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"order": i}})
+        await broadcast("goals_changed")
         return {"ok": True}
     except Exception as e:
         logger.error(f"Failed to reorder goals: {e}")

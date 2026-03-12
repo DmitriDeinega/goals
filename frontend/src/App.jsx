@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { useGoals } from './hooks/useGoals'
 import { useLogs } from './hooks/useLogs'
 import { useSettings } from './hooks/useSettings'
+import { useEvents } from './hooks/useEvents'
 import { ensureWeek } from './api'
 import TodayPage from './pages/TodayPage'
 import GoalsPage from './pages/GoalsPage'
@@ -19,6 +20,9 @@ export default function App() {
   const currency = settings?.currency || 'NIS'
   const isDev = settings?.app_env === 'DEV'
   const appTitle = isDev ? 'Goals-DEV' : 'Goals'
+
+  // SSE — real-time sync across devices
+  useEvents({ onGoalsChanged: reloadGoals, onLogsChanged: reloadLogs })
 
   // Update browser tab title
   useEffect(() => {

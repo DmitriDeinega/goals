@@ -55,10 +55,6 @@ export default function WeekStrip({ selectedDate, onSelect, settings }) {
   const handleJump = (val) => {
     const picked = dayjs(val)
     if (!picked.isValid()) return
-    const pickedStart = getWeekStart(picked, firstDay)
-    const currentStart = getWeekStart(today, firstDay)
-    const diff = pickedStart.diff(currentStart, 'week')
-    setWeekOffset(Math.min(diff, 0))
     // Select the picked date itself, capped at today
     const capped = picked.isAfter(today) ? today : picked
     onSelect(capped.format('YYYY-MM-DD'))

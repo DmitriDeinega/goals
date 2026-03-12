@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -44,6 +44,12 @@ function ConfirmDialog({ message, onConfirm, onCancel }) {
 
 function SortableGoalCard({ goal, onEdit }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: goal.id })
+  const draggedRef = useRef(false)
+
+  useEffect(() => {
+    if (isDragging) draggedRef.current = true
+    else setTimeout(() => { draggedRef.current = false }, 100)
+  }, [isDragging])
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -56,14 +62,14 @@ function SortableGoalCard({ goal, onEdit }) {
       ref={setNodeRef}
       style={style}
       className={`goal-card ${!goal.enabled ? 'disabled' : ''}`}
+      {...attributes}
+      {...listeners}
     >
       <button
         ref={setActivatorNodeRef}
         className="drag-handle"
-        {...attributes}
-        {...listeners}
       >⠿</button>
-      <div className="goal-card-info" onClick={() => onEdit(goal)}>
+      <div className="goal-card-info" onClick={() => { if (!draggedRef.current) onEdit(goal) }}>
         <div className="goal-card-name">
           {goal.name}
           {goal.is_negative && <span className="negative-badge">avoid</span>}
@@ -86,9 +92,25 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
 
   useEffect(() => { setLocalGoals(goals) }, [goals])
 
+  // Use a ref to always hold the latest version for the goal being edited.
+  // This avoids stale closure issues in handleSave.
+  const editVersionRef = useRef(null)
+
+  // When goals update (via SSE reload), sync the latest version into the ref
+  // and update editGoal so GoalForm re-initializes with fresh data
+  useEffect(() => {
+    if (editGoal) {
+      const fresh = goals.find(g => g.id === editGoal.id)
+      if (fresh && fresh.version !== editGoal.version) {
+        editVersionRef.current = fresh.version
+        setEditGoal(fresh)  // triggers GoalForm to re-initialize with latest data
+      }
+    }
+  }, [goals, editGoal])
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 8 } }),
   )
 
   const handleDragEnd = async (event) => {
@@ -101,19 +123,31 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
     await onReorder(reordered.map(g => g.id))
   }
 
-  const handleSave = async (data) => {
-    if (editGoal) {
-      await onUpdate(editGoal.id, data)
-    } else {
-      await onAdd(data)
-    }
+  const openEdit = (goal) => {
+    editVersionRef.current = goal.version  // seed ref with version at open time
+    setEditGoal(goal)
+    setShowForm(true)
+  }
+
+  const closeForm = () => {
+    editVersionRef.current = null
     setShowForm(false)
     setEditGoal(null)
   }
 
+  const handleSave = async (data) => {
+    if (editGoal) {
+      // Always use ref — it's kept up to date by SSE reloads
+      const version = editVersionRef.current ?? editGoal.version
+      await onUpdate(editGoal.id, { ...data, version })
+    } else {
+      await onAdd(data)
+    }
+    closeForm()
+  }
+
   const handleDeleteRequest = (id) => {
-    setShowForm(false)
-    setEditGoal(null)
+    closeForm()
     setConfirmId(id)
   }
 
@@ -137,14 +171,14 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
               <SortableGoalCard
                 key={goal.id}
                 goal={goal}
-                onEdit={(g) => { setEditGoal(g); setShowForm(true) }}
+                onEdit={openEdit}
               />
             ))}
           </SortableContext>
         </DndContext>
       </div>
 
-      <button className="add-btn" onClick={() => { setEditGoal(null); setShowForm(true) }}>
+      <button className="add-btn" onClick={() => { editVersionRef.current = null; setEditGoal(null); setShowForm(true) }}>
         + New Goal
       </button>
 
@@ -152,7 +186,7 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
         <GoalForm
           goal={editGoal}
           onSave={handleSave}
-          onClose={() => { setShowForm(false); setEditGoal(null) }}
+          onClose={closeForm}
           onSetEnabled={onSetEnabled}
           onDelete={handleDeleteRequest}
         />

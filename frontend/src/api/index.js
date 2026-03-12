@@ -11,14 +11,19 @@ async function request(path, options = {}) {
     if (!res.ok) {
       const detail = await res.json().then(d => d.detail).catch(() => null)
       const msg = detail || `Request failed (${res.status})`
+      if (res.status === 409) {
+        // Conflict — throw without toasting, caller handles it
+        const err = new Error(msg)
+        err.status = 409
+        throw err
+      }
       toast(msg)
       throw new Error(msg)
     }
     return res.json()
   } catch (e) {
-    if (e.message !== 'Failed to fetch') {
-      // Already toasted above for API errors
-    } else {
+    if (e.status === 409) throw e  // pass through conflict errors
+    if (e.message === 'Failed to fetch') {
       toast('Could not reach the server. Check your connection.')
     }
     throw e
