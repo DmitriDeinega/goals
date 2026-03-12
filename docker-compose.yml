@@ -1,0 +1,26 @@
+name: goals
+services:
+  mongo:
+    image: mongo:7
+    container_name: goals-mongo
+    restart: unless-stopped
+    volumes:
+      - goals_mongo_data:/data/db
+
+  backend:
+    build:
+      dockerfile: backend/Dockerfile
+    container_name: goals-backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "2200:2200"
+    env_file:
+      - backend/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: goals_db
+
+volumes:
+  goals_mongo_data:
