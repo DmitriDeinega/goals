@@ -73,6 +73,8 @@ export default function WeekStrip({ selectedDate, onSelect, settings }) {
           max={todayStr}
           min={startDate || undefined}
           clearable={false}
+          showToday={true}
+          onTodayReset={() => onSelect(todayStr)}
         />
       </div>
 

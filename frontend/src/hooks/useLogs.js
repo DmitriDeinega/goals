@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getLogs, upsertLog, getWeekSummary } from '../api'
 import dayjs from 'dayjs'
 
-export function useLogs(selectedDate) {
+export function useLogs(selectedDate, weekReady = true) {
   const [logs, setLogs] = useState([])
   const [weekSummary, setWeekSummary] = useState(null)
 
@@ -30,7 +30,7 @@ export function useLogs(selectedDate) {
     }
   }, [selectedDate])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (weekReady) load() }, [load, weekReady])
 
   const toggle = async (goalId, date, slot, currentDone) => {
     // currentDone is the visual state (true = ok/success, false = failed/unmarked)

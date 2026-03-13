@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import dayjs from 'dayjs'
 
-export default function DatePicker({ value, onChange, placeholder = 'Pick date', min = null, max = null, clearable = true }) {
+export default function DatePicker({ value, onChange, placeholder = 'Pick date', min = null, max = null, clearable = true, showToday = false, onTodayReset = null }) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState(null) // dayjs of month being shown
   const ref = useRef(null)
@@ -66,7 +66,18 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
         </span>
         {selected && clearable
           ? <button className="dp-clear" onMouseDown={clear}>×</button>
-          : <span className="dp-icon">▾</span>
+          : showToday
+            ? <button
+                className="dp-clear"
+                style={{ opacity: selected && selected.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD') ? 1 : 0.5, fontSize: '18px', color: selected && selected.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD') ? 'var(--accent)' : '#aaaaaa' }}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (selected && selected.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD')) onTodayReset?.()
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >⌂</button>
+            : <span className="dp-icon">▾</span>
         }
       </div>
 

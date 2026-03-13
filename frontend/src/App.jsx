@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import dayjs from 'dayjs'
 import { useGoals } from './hooks/useGoals'
 import { useLogs } from './hooks/useLogs'
@@ -15,8 +15,9 @@ export default function App() {
   const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
 
+  const [weekReady, setWeekReady] = useState(false)
   const { goals, add, update, remove, setEnabled, reorder, reload: reloadGoals } = useGoals()
-  const { weekSummary, toggle, getLog, reload: reloadLogs } = useLogs(selectedDate)
+  const { weekSummary, toggle, getLog, reload: reloadLogs } = useLogs(selectedDate, weekReady)
   const { settings } = useSettings()
 
   const currency = settings?.currency || 'NIS'
@@ -26,7 +27,7 @@ export default function App() {
   useEvents({ onGoalsChanged: reloadGoals, onLogsChanged: reloadLogs })
 
   useEffect(() => { document.title = appTitle }, [appTitle])
-  useEffect(() => { ensureWeek().catch(() => {}) }, [])
+  useEffect(() => { ensureWeek().catch(() => {}).finally(() => setWeekReady(true)) }, [])
 
   const handleTabChange = (newTab) => {
     if (newTab === tab) return
