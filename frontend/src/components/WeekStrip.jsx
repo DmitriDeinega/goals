@@ -36,19 +36,14 @@ export default function WeekStrip({ selectedDate, onSelect, settings }) {
 
   const goBack = () => {
     if (!canGoBack) return
-    const newWeekStart = weekStart.subtract(1, 'week')
-    const newWeekStartDow = newWeekStart.day()
-    const diff = (selectedDow - newWeekStartDow + 7) % 7
-    onSelect(newWeekStart.add(diff, 'day').format('YYYY-MM-DD'))
+    const newWeekEnd = weekStart.subtract(1, 'day') // last day of prev week
+    onSelect(newWeekEnd.format('YYYY-MM-DD'))
   }
 
   const goForward = () => {
     if (isCurrentWeek) return
-    const newWeekStart = weekStart.add(1, 'week')
-    const newWeekStartDow = newWeekStart.day()
-    const diff = (selectedDow - newWeekStartDow + 7) % 7
-    const candidate = newWeekStart.add(diff, 'day')
-    const capped = candidate.isAfter(today) ? today : candidate
+    const newWeekEnd = weekStart.add(1, 'week').add(6, 'day')
+    const capped = newWeekEnd.isAfter(today) ? today : newWeekEnd
     onSelect(capped.format('YYYY-MM-DD'))
   }
 
