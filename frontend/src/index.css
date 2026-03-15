@@ -188,11 +188,12 @@ body {
   gap: 4px;
   align-items: center;
   flex-shrink: 0;
+  width: 100%;
 }
 
 .day-btn {
   flex: 1;
-  min-width: 40px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
