@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { toast } from './Toast'
 
 const EMPTY = {
   name: '',
@@ -12,7 +13,6 @@ const EMPTY = {
 
 export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete }) {
   const [form, setForm] = useState(EMPTY)
-  const [errors, setErrors] = useState([])
   const [closing, setClosing] = useState(false)
 
   const handleClose = () => {
@@ -30,7 +30,6 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
       enabled: goal.enabled ?? true,
     })
     else setForm(EMPTY)
-    setErrors([])
   }, [goal])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
@@ -65,29 +64,28 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
   const maxCompletions = form.type === 'weekly_x' ? Number(form.times_per_week) : 7
 
   const validate = () => {
-    const errs = []
-    if (!form.name.trim()) errs.push('Name is required')
+    if (!form.name.trim()) { toast('Name is required'); return false }
     if (form.type === 'weekly_x') {
       const v = Number(form.times_per_week)
-      if (!v || v < 1) errs.push('Times per week must be at least 1')
+      if (!v || v < 1) { toast('Times per week must be at least 1'); return false }
     }
     if (form.type === 'daily') {
       const v = Number(form.times_per_day)
-      if (!v || v < 1) errs.push('Times per day must be at least 1')
+      if (!v || v < 1) { toast('Times per day must be at least 1'); return false }
     }
-    form.reward_rules.forEach((rule, i) => {
+    for (let i = 0; i < form.reward_rules.length; i++) {
+      const rule = form.reward_rules[i]
       const mc = Number(rule.min_completions)
-      if (!mc || mc < 1) errs.push(`Rule ${i + 1}: completions must be at least 1`)
-      if (mc > maxCompletions) errs.push(`Rule ${i + 1}: completions can't exceed ${maxCompletions}`)
+      if (!mc || mc < 1) { toast(`Rule ${i + 1}: completions must be at least 1`); return false }
+      if (mc > maxCompletions) { toast(`Rule ${i + 1}: completions can't exceed ${maxCompletions}`); return false }
       const ra = parseFloat(rule.reward_amount)
-      if (isNaN(ra) || ra <= 0) errs.push(`Rule ${i + 1}: reward must be greater than 0`)
-    })
-    return errs
+      if (isNaN(ra) || ra <= 0) { toast(`Rule ${i + 1}: reward must be greater than 0`); return false }
+    }
+    return true
   }
 
   const handleSave = async () => {
-    const errs = validate()
-    if (errs.length > 0) { setErrors(errs); return }
+    if (!validate()) return
     // If editing and enabled changed, call onSetEnabled separately
     if (goal && onSetEnabled && form.enabled !== goal.enabled) {
       await onSetEnabled(goal.id, form.enabled)
@@ -130,12 +128,6 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
             </div>
           )}
         </div>
-
-        {errors.length > 0 && (
-          <div className="form-errors">
-            {errors.map((e, i) => <div key={i}>{e}</div>)}
-          </div>
-        )}
 
         <div className="field">
           <label>Name</label>

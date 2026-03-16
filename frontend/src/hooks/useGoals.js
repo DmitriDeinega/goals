@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getGoals, createGoal, updateGoal, deleteGoal, setGoalEnabled, reorderGoals } from '../api'
+import { getGoals, createGoal, updateGoal, deleteGoal, setGoalEnabled, reorderGoals, ensureWeek } from '../api'
 import { toast } from '../components/Toast'
 
 export function useGoals() {
   const [goals, setGoals] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      const data = await getGoals()
+      const data = await getGoals(silent)
       setGoals(data)
     } catch (e) {
-      // error already toasted by api layer
+      // error toasted by api layer unless silent
     } finally {
       setLoading(false)
     }
@@ -21,6 +21,7 @@ export function useGoals() {
 
   const add = async (data) => {
     await createGoal({ ...data, order: goals.length })
+    await ensureWeek()
     await load()
   }
 

@@ -56,6 +56,9 @@ async def create_goal(goal: GoalCreate):
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
+        existing = await db.goals.find_one({"name": {"$regex": f"^{goal.name.strip()}$", "$options": "i"}, "active": True})
+        if existing:
+            raise HTTPException(status_code=422, detail="A goal with this name already exists")
         doc = goal.model_dump()
         doc["active"] = True
         doc["version"] = 1
@@ -86,6 +89,12 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
             if db_version != client_version:
                 logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
                 raise HTTPException(status_code=409, detail="Goal was modified by another session. Please reload.")
+
+        name_val = goal.model_dump().get("name")
+        if name_val:
+            existing = await db.goals.find_one({"name": {"$regex": f"^{name_val.strip()}$", "$options": "i"}, "active": True, "_id": {"$ne": ObjectId(goal_id)}})
+            if existing:
+                raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
         update_data = {}
         for k, v in goal.model_dump().items():
