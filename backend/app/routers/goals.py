@@ -112,6 +112,22 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
         week_start = get_week_start(get_today(tz), first_day)
         entry = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         enabled = entry.get("enabled", True) if entry else True
+
+        # Update snapshot in current week's goal_weeks entry so edits are reflected this week
+        snapshot = {
+            "name": updated.get("name"),
+            "order": updated.get("order", 0),
+            "type": updated.get("type"),
+            "is_negative": updated.get("is_negative", False),
+            "times_per_day": updated.get("times_per_day"),
+            "times_per_week": updated.get("times_per_week"),
+            "reward_rules": updated.get("reward_rules", []),
+        }
+        await db.goal_weeks.update_one(
+            {"goal_id": goal_id, "week_start": week_start},
+            {"$set": {"snapshot": snapshot}},
+        )
+
         logger.info(f"Updated goal: {goal_id} version={update_data['version']}")
         await broadcast("goals_changed")
         return goal_from_doc(updated, enabled)
@@ -126,8 +142,11 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
 async def delete_goal(goal_id: str):
     try:
         db = get_db()
+        tz, first_day = await get_settings_cached(db)
+        week_start = get_week_start(get_today(tz), first_day)
         await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": {"active": False}})
-        await db.goal_weeks.delete_many({"goal_id": goal_id})
+        # Only remove current week — past weeks keep their snapshot for history
+        await db.goal_weeks.delete_many({"goal_id": goal_id, "week_start": week_start})
         logger.info(f"Deleted goal: {goal_id}")
         await broadcast("goals_changed")
         return {"ok": True}
@@ -140,8 +159,14 @@ async def delete_goal(goal_id: str):
 async def reorder_goals(goal_ids: list[str]):
     try:
         db = get_db()
+        tz, first_day = await get_settings_cached(db)
+        week_start = get_week_start(get_today(tz), first_day)
         for i, gid in enumerate(goal_ids):
             await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"order": i}})
+            await db.goal_weeks.update_one(
+                {"goal_id": gid, "week_start": week_start},
+                {"$set": {"snapshot.order": i}},
+            )
         await broadcast("goals_changed")
         return {"ok": True}
     except Exception as e:

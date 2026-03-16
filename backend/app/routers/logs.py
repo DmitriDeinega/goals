@@ -77,14 +77,18 @@ async def week_summary(week_start: str, week_end: str, selected_date: str = None
         gw_entries = await db.goal_weeks.find(
             {"week_start": week_start, "enabled": True}
         ).to_list(None)
-        enabled_ids = {e["goal_id"] for e in gw_entries}
 
-        if not enabled_ids:
+        if not gw_entries:
             return {"week_start": week_start, "week_end": week_end, "goals": [], "total_earned": 0}
 
         logs = await db.logs.find({"date": {"$gte": week_start, "$lte": week_end}}).to_list(None)
-        goals = await db.goals.find({"active": True}).to_list(None)
-        goals = [g for g in goals if str(g["_id"]) in enabled_ids]
+
+        # Always use snapshot — goal definitions are frozen at enrollment time
+        goals = []
+        for e in gw_entries:
+            snap = e.get("snapshot")
+            if snap:
+                goals.append({"_id": e["goal_id"], **snap})
 
         def days_up_to_cutoff():
             current = Date.fromisoformat(week_start)
@@ -139,7 +143,12 @@ async def week_summary(week_start: str, week_end: str, selected_date: str = None
 
             summary.append({
                 "goal_id": gid,
-                "goal_name": goal["name"],
+                "goal_name": goal.get("name"),
+                "order": goal.get("order", 0),
+                "type": goal.get("type"),
+                "is_negative": goal.get("is_negative", False),
+                "times_per_day": goal.get("times_per_day"),
+                "times_per_week": goal.get("times_per_week"),
                 "completions": completions,
                 "total_slots": total_slots,
                 "earned_reward": earned,

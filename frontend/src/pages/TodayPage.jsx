@@ -16,9 +16,27 @@ export default function TodayPage({ goals, selectedDate, setSelectedDate, getLog
     ? <>No goals yet.<br />Head to the Goals tab to add some.</>
     : <>No goals were tracked this week.</>
 
-  // Falls back to all enabled goals for current week when summary isn't loaded yet
+  // Build goal rows from snapshot (past weeks) or live goals (current week)
+  // Snapshot preserves name, type, order, is_negative as they were that week
+  const liveGoalMap = {}
+  for (const g of goals) liveGoalMap[g.id] = g
+
   const visibleGoals = weekSummary
-    ? goals.filter(g => statsMap[g.id] !== undefined)
+    ? weekSummary.goals
+        .map(s => {
+          const live = liveGoalMap[s.goal_id]
+          // Use snapshot fields if available, fall back to live for id/toggling
+          return {
+            id: s.goal_id,
+            name: s.goal_name ?? live?.name,
+            type: s.type ?? live?.type,
+            is_negative: s.is_negative ?? live?.is_negative ?? false,
+            times_per_day: s.times_per_day ?? live?.times_per_day,
+            times_per_week: s.times_per_week ?? live?.times_per_week,
+            order: s.order ?? live?.order ?? 0,
+          }
+        })
+        .sort((a, b) => a.order - b.order)
     : goals.filter(g => g.enabled)
 
   return (

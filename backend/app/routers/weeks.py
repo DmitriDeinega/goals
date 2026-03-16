@@ -32,15 +32,30 @@ async def ensure_week():
         week_start = get_week_start(today, first_day)
 
         goals = await db.goals.find({"active": True}).to_list(None)
-        goal_ids = [str(g["_id"]) for g in goals]
 
         existing = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
         existing_ids = {e["goal_id"] for e in existing}
 
-        new_entries = [
-            {"goal_id": gid, "week_start": week_start, "enabled": True}
-            for gid in goal_ids if gid not in existing_ids
-        ]
+        new_entries = []
+        for g in goals:
+            gid = str(g["_id"])
+            if gid not in existing_ids:
+                new_entries.append({
+                    "goal_id": gid,
+                    "week_start": week_start,
+                    "enabled": True,
+                    # Snapshot goal properties at enrollment time
+                    "snapshot": {
+                        "name": g.get("name"),
+                        "order": g.get("order", 0),
+                        "type": g.get("type"),
+                        "is_negative": g.get("is_negative", False),
+                        "times_per_day": g.get("times_per_day"),
+                        "times_per_week": g.get("times_per_week"),
+                        "reward_rules": g.get("reward_rules", []),
+                    }
+                })
+
         if new_entries:
             await db.goal_weeks.insert_many(new_entries)
             logger.info(f"Enrolled {len(new_entries)} goals for week {week_start}")
