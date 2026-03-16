@@ -64,8 +64,21 @@ async def create_goal(goal: GoalCreate):
         doc["version"] = 1
         result = await db.goals.insert_one(doc)
         gid = str(result.inserted_id)
-        await db.goal_weeks.insert_one({"goal_id": gid, "week_start": week_start, "enabled": True})
         created = await db.goals.find_one({"_id": result.inserted_id})
+        await db.goal_weeks.insert_one({
+            "goal_id": gid,
+            "week_start": week_start,
+            "enabled": True,
+            "snapshot": {
+                "name": created.get("name"),
+                "order": created.get("order", 0),
+                "type": created.get("type"),
+                "is_negative": created.get("is_negative", False),
+                "times_per_day": created.get("times_per_day"),
+                "times_per_week": created.get("times_per_week"),
+                "reward_rules": created.get("reward_rules", []),
+            }
+        })
         logger.info(f"Created goal: {gid} name={goal.name}")
         await broadcast("goals_changed")
         return goal_from_doc(created, enabled=True)
