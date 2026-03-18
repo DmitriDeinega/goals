@@ -17,14 +17,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger("goals")
 
-from .database import connect_db, close_db
+from .database import connect_db, close_db, get_db
 from .routers import goals, logs, settings, weeks, events
+
+async def ensure_indexes():
+    db = get_db()
+    await db.logs.create_index([("goal_id", 1), ("date", 1), ("slot", 1)], unique=True)
+    await db.logs.create_index([("date", 1)])
+    await db.goal_weeks.create_index([("week_start", 1), ("goal_id", 1)], unique=True)
+    await db.goal_weeks.create_index([("week_start", 1), ("enabled", 1)])
+    logger.info("Indexes ensured")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app_env = os.getenv("APP_ENV", "PROD")
     logger.info(f"Starting Goals API — env={app_env} log_level={LOG_LEVEL}")
     await connect_db()
+    await ensure_indexes()
     yield
     await close_db()
     logger.info("Goals API shutting down")

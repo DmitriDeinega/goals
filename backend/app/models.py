@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional, List
 from enum import Enum
 
@@ -21,6 +21,14 @@ class GoalCreate(BaseModel):
     times_per_day: Optional[int] = None
     reward_rules: List[RewardRule] = []
     order: int = 0
+
+    @model_validator(mode='after')
+    def check_type_fields(self):
+        if self.type == GoalType.weekly_x and (self.times_per_week is None or self.times_per_week < 1):
+            raise ValueError('times_per_week is required and must be at least 1 for weekly goals')
+        if self.type == GoalType.daily and (self.times_per_day is None or self.times_per_day < 1):
+            raise ValueError('times_per_day is required and must be at least 1 for daily goals')
+        return self
 
 
 class GoalUpdate(BaseModel):
