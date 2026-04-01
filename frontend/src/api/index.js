@@ -2,17 +2,27 @@ import { toast } from '../components/Toast'
 
 const BASE = '/api'
 
+export const SESSION_ID = crypto.randomUUID()
+
+let _lastSeq = 0
+export const getLastSeq = () => _lastSeq
+export const setLastSeq = (seq) => { _lastSeq = seq }
+
 async function request(path, options = {}) {
   try {
     const res = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-ID': SESSION_ID,
+        'X-Sequence': String(_lastSeq),
+        ...(options.headers || {}),
+      },
       ...options,
     })
     if (!res.ok) {
       const detail = await res.json().then(d => d.detail).catch(() => null)
       const msg = detail || `Request failed (${res.status})`
       if (res.status === 409) {
-        // Conflict — throw without toasting, caller handles it
         const err = new Error(msg)
         err.status = 409
         throw err
@@ -20,9 +30,11 @@ async function request(path, options = {}) {
       toast(msg)
       throw new Error(msg)
     }
-    return res.json()
+    const data = await res.json()
+    if (data?.seq !== undefined) setLastSeq(data.seq)
+    return data
   } catch (e) {
-    if (e.status === 409) throw e  // pass through conflict errors
+    if (e.status === 409) throw e
     if (e.message === 'Failed to fetch') {
       toast('Could not reach the server. Check your connection.')
     }
@@ -30,27 +42,23 @@ async function request(path, options = {}) {
   }
 }
 
+// Init
+export const getInit = () => request('/init')
+export const getWeekData = (weekStart) => request(`/week-data?week_start=${weekStart}`)
+
 // Goals
 export const getGoals = () => request('/goals/')
 export const createGoal = (data) => request('/goals/', { method: 'POST', body: JSON.stringify(data) })
 export const updateGoal = (id, data) => request(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteGoal = (id) => request(`/goals/${id}`, { method: 'DELETE' })
-export const reorderGoals = (ids) => request('/goals/reorder/batch', { method: 'PUT', body: JSON.stringify(ids) })
+export const reorderGoals = (items) => request('/goals/reorder/batch', { method: 'PUT', body: JSON.stringify(items) })
 
 // Settings
 export const getSettings = () => request('/settings/')
 export const updateSettings = (data) => request('/settings/', { method: 'PUT', body: JSON.stringify(data) })
 
-// Logs
-export const getLogs = (params) => {
-  const q = new URLSearchParams(params).toString()
-  return request(`/logs/?${q}`)
-}
+// Logs — slot_index and value instead of slot and completed
 export const upsertLog = (data) => request('/logs/', { method: 'POST', body: JSON.stringify(data) })
-export const getWeekSummary = (weekStart, weekEnd, selectedDate = null) => {
-  const params = `week_start=${weekStart}&week_end=${weekEnd}${selectedDate ? `&selected_date=${selectedDate}` : ''}`
-  return request(`/logs/week-summary?${params}`)
-}
 
 // Weeks
 export const ensureWeek = () => request('/weeks/ensure', { method: 'POST' })

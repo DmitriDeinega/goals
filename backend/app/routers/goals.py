@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from bson import ObjectId
 import logging
 from ..database import get_db
-from ..models import GoalCreate, GoalUpdate, GoalOut
-from ..time_utils import get_today, get_week_start
+from ..models import GoalCreate, GoalUpdate, GoalOut, GoalWeekOut, GoalChangedPayload, LogOut
+from ..time_utils import get_today, get_week_start, get_week_end
 from ..broadcaster import broadcast
+from ..sequence import increment_sequence, get_sequence
+from .logs import get_goal_week_logs, ensure_slots_for_goal, reconcile_slots_for_goal
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.goals")
@@ -12,8 +14,9 @@ logger = logging.getLogger("goals.routers.goals")
 
 async def get_settings_cached(db):
     s = await db.settings.find_one({"_id": "global"})
-    s = s or {}
-    return s.get("timezone", "Asia/Jerusalem"), s.get("first_day_of_week", "sunday")
+    if not s:
+        raise RuntimeError("Settings not found in DB")
+    return s["timezone"], s["first_day_of_week"]
 
 
 def goal_from_doc(doc, enabled: bool = True) -> GoalOut:
@@ -33,6 +36,23 @@ def goal_from_doc(doc, enabled: bool = True) -> GoalOut:
     )
 
 
+def goal_week_from_doc(doc) -> GoalWeekOut:
+    return GoalWeekOut(
+        goal_id=doc["goal_id"],
+        week_start=doc["week_start"],
+        enabled=doc.get("enabled", True),
+        snapshot=doc.get("snapshot", {}),
+    )
+
+
+async def validate_client_seq(request: Request):
+    client_seq = request.headers.get("X-Sequence")
+    if client_seq is not None:
+        current_seq = await get_sequence()
+        if int(client_seq) != current_seq:
+            raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+
+
 @router.get("/", response_model=list[GoalOut])
 async def get_goals():
     try:
@@ -49,70 +69,105 @@ async def get_goals():
         raise
 
 
-@router.post("/", response_model=GoalOut)
-async def create_goal(goal: GoalCreate):
+@router.post("/", response_model=GoalChangedPayload)
+async def create_goal(goal: GoalCreate, request: Request):
     try:
         db = get_db()
+        await validate_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
-        existing = await db.goals.find_one({"name": {"$regex": f"^{goal.name.strip()}$", "$options": "i"}, "active": True})
+        week_end = get_week_end(week_start)
+
+        existing = await db.goals.find_one({
+            "name": {"$regex": f"^{goal.name.strip()}$", "$options": "i"},
+            "active": True
+        })
         if existing:
             raise HTTPException(status_code=422, detail="A goal with this name already exists")
+
         doc = goal.model_dump()
         doc["active"] = True
         doc["version"] = 1
         result = await db.goals.insert_one(doc)
         gid = str(result.inserted_id)
         created = await db.goals.find_one({"_id": result.inserted_id})
+
+        snapshot = {
+            "name": created.get("name"),
+            "order": created.get("order", 0),
+            "type": created.get("type"),
+            "is_negative": created.get("is_negative", False),
+            "times_per_day": created.get("times_per_day"),
+            "times_per_week": created.get("times_per_week"),
+            "reward_rules": created.get("reward_rules", []),
+        }
         await db.goal_weeks.insert_one({
             "goal_id": gid,
             "week_start": week_start,
             "enabled": True,
-            "snapshot": {
-                "name": created.get("name"),
-                "order": created.get("order", 0),
-                "type": created.get("type"),
-                "is_negative": created.get("is_negative", False),
-                "times_per_day": created.get("times_per_day"),
-                "times_per_week": created.get("times_per_week"),
-                "reward_rules": created.get("reward_rules", []),
-            }
+            "snapshot": snapshot,
         })
+
+        if goal.type == "daily":
+            tpd = goal.times_per_day or 1
+            await ensure_slots_for_goal(db, gid, today, today, tpd, goal.is_negative)
+
+        goal_week_doc = await db.goal_weeks.find_one({"goal_id": gid, "week_start": week_start})
+        goal_logs = await get_goal_week_logs(db, gid, week_start, week_end)
+        seq = await increment_sequence()
+
+        payload = GoalChangedPayload(
+            action="created",
+            goal=goal_from_doc(created, enabled=True),
+            goal_week=goal_week_from_doc(goal_week_doc),
+            logs=goal_logs,
+            week_start=week_start,
+            seq=seq,
+        )
+
         logger.info(f"Created goal: {gid} name={goal.name}")
-        await broadcast("goals_changed")
-        return goal_from_doc(created, enabled=True)
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
+        return payload
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to create goal: {e}")
         raise
 
 
-@router.put("/{goal_id}", response_model=GoalOut)
-async def update_goal(goal_id: str, goal: GoalUpdate):
+@router.put("/{goal_id}", response_model=GoalChangedPayload)
+async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
     try:
         db = get_db()
+        await validate_client_seq(request)
 
-        # Optimistic locking — check version if provided
+        current = await db.goals.find_one({"_id": ObjectId(goal_id)})
+        if not current:
+            raise HTTPException(status_code=404, detail="Goal not found")
+
         client_version = goal.version
         if client_version is not None:
-            current = await db.goals.find_one({"_id": ObjectId(goal_id)})
-            if not current:
-                raise HTTPException(status_code=404, detail="Goal not found")
             db_version = current.get("version", 0)
             if db_version != client_version:
                 logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
-                raise HTTPException(status_code=409, detail="Goal was modified by another session. Please reload.")
+                raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
 
         name_val = goal.model_dump().get("name")
         if name_val:
-            existing = await db.goals.find_one({"name": {"$regex": f"^{name_val.strip()}$", "$options": "i"}, "active": True, "_id": {"$ne": ObjectId(goal_id)}})
+            existing = await db.goals.find_one({
+                "name": {"$regex": f"^{name_val.strip()}$", "$options": "i"},
+                "active": True,
+                "_id": {"$ne": ObjectId(goal_id)}
+            })
             if existing:
                 raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
         update_data = {}
         for k, v in goal.model_dump().items():
             if k == "version":
-                continue  # don't store client version
+                continue
             if k in ("reward_rules", "times_per_week", "times_per_day"):
                 if v is not None:
                     update_data[k] = v
@@ -122,20 +177,18 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
 
-        # Increment version on every save
         update_data["version"] = (client_version if client_version is not None else 0) + 1
 
         await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": update_data})
         updated = await db.goals.find_one({"_id": ObjectId(goal_id)})
-        if not updated:
-            raise HTTPException(status_code=404, detail="Goal not found")
 
         tz, first_day = await get_settings_cached(db)
         week_start = get_week_start(get_today(tz), first_day)
+        week_end = get_week_end(week_start)
+
         entry = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         enabled = entry.get("enabled", True) if entry else True
 
-        # Update snapshot in current week's goal_weeks entry so edits are reflected this week
         snapshot = {
             "name": updated.get("name"),
             "order": updated.get("order", 0),
@@ -150,9 +203,29 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
             {"$set": {"snapshot": snapshot}},
         )
 
+        old_tpd = current.get("times_per_day")
+        new_tpd = updated.get("times_per_day")
+        new_is_negative = updated.get("is_negative", False)
+        if updated.get("type") == "daily" and old_tpd != new_tpd and new_tpd:
+            await reconcile_slots_for_goal(db, goal_id, week_start, week_end, new_tpd, new_is_negative)
+
+        goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
+        goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
+        seq = await increment_sequence()
+
+        payload = GoalChangedPayload(
+            action="updated",
+            goal=goal_from_doc(updated, enabled),
+            goal_week=goal_week_from_doc(goal_week_doc),
+            logs=goal_logs,
+            week_start=week_start,
+            seq=seq,
+        )
+
         logger.info(f"Updated goal: {goal_id} version={update_data['version']}")
-        await broadcast("goals_changed")
-        return goal_from_doc(updated, enabled)
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
+        return payload
     except HTTPException:
         raise
     except Exception as e:
@@ -160,37 +233,71 @@ async def update_goal(goal_id: str, goal: GoalUpdate):
         raise
 
 
-@router.delete("/{goal_id}")
-async def delete_goal(goal_id: str):
+@router.delete("/{goal_id}", response_model=GoalChangedPayload)
+async def delete_goal(goal_id: str, request: Request):
     try:
         db = get_db()
+        await validate_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         week_start = get_week_start(get_today(tz), first_day)
+
         await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": {"active": False}})
-        # Only remove current week — past weeks keep their snapshot for history
         await db.goal_weeks.delete_many({"goal_id": goal_id, "week_start": week_start})
+
+        seq = await increment_sequence()
+        payload = GoalChangedPayload(
+            action="deleted",
+            goal_id=goal_id,
+            week_start=week_start,
+            seq=seq,
+        )
+
         logger.info(f"Deleted goal: {goal_id}")
-        await broadcast("goals_changed")
-        return {"ok": True}
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
+        return payload
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete goal {goal_id}: {e}")
         raise
 
 
 @router.put("/reorder/batch")
-async def reorder_goals(goal_ids: list[str]):
+async def reorder_goals(body: list[dict], request: Request):
     try:
         db = get_db()
+        await validate_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         week_start = get_week_start(get_today(tz), first_day)
-        for i, gid in enumerate(goal_ids):
-            await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"order": i}})
+
+        payloads = []
+        for item in body:
+            gid = item["goal_id"]
+            new_order = item["new_order"]
+            await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"order": new_order}})
             await db.goal_weeks.update_one(
                 {"goal_id": gid, "week_start": week_start},
-                {"$set": {"snapshot.order": i}},
+                {"$set": {"snapshot.order": new_order}},
             )
-        await broadcast("goals_changed")
-        return {"ok": True}
+            payloads.append(GoalChangedPayload(
+                action="reordered",
+                goal_id=gid,
+                new_order=new_order,
+                week_start=week_start,
+                seq=0,  # filled below
+            ))
+
+        seq = await increment_sequence()
+        for p in payloads:
+            p.seq = seq
+
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("goal_changed", [p.model_dump() for p in payloads], exclude_session=session_id)
+        logger.info(f"Reordered {len(payloads)} goals")
+        return [p.model_dump() for p in payloads]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to reorder goals: {e}")
         raise

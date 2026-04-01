@@ -1,5 +1,10 @@
 import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
 import DatePicker from './DatePicker'
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
 
 const DAY_NAMES_SUN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_NAMES_MON = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -15,14 +20,16 @@ function getWeekStart(date, firstDay = 'sunday') {
 }
 
 export default function WeekStrip({ selectedDate, onSelect, settings }) {
-  const today = dayjs()
-
+  const tz = settings?.timezone
   const firstDay = settings?.first_day_of_week || 'sunday'
   const startDate = settings?.start_date || null
   const dayNames = firstDay === 'monday' ? DAY_NAMES_MON : DAY_NAMES_SUN
 
-  // Derive week from selectedDate, not from local offset state
-  const currentWeekStart = getWeekStart(today, firstDay)
+  // Compute today in the server's timezone
+  const todayStr = tz ? dayjs().tz(tz).format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD')
+  const todayDayjs = dayjs(todayStr)
+
+  const currentWeekStart = getWeekStart(todayStr, firstDay)
   const selectedWeekStart = getWeekStart(dayjs(selectedDate), firstDay)
   const weekOffset = selectedWeekStart.diff(currentWeekStart, 'week')
 
@@ -32,34 +39,28 @@ export default function WeekStrip({ selectedDate, onSelect, settings }) {
   const prevWeekStart = weekStart.subtract(1, 'week')
   const canGoBack = !startDate || prevWeekStart.format('YYYY-MM-DD') >= startDate || weekStart.format('YYYY-MM-DD') > startDate
 
-  const selectedDow = dayjs(selectedDate).day() // 0=Sun..6=Sat
-
   const goBack = () => {
     if (!canGoBack) return
-    const newWeekEnd = weekStart.subtract(1, 'day') // last day of prev week
+    const newWeekEnd = weekStart.subtract(1, 'day')
     onSelect(newWeekEnd.format('YYYY-MM-DD'))
   }
 
   const goForward = () => {
     if (isCurrentWeek) return
     const newWeekEnd = weekStart.add(1, 'week').add(6, 'day')
-    const capped = newWeekEnd.isAfter(today) ? today : newWeekEnd
+    const capped = newWeekEnd.isAfter(todayDayjs) ? todayDayjs : newWeekEnd
     onSelect(capped.format('YYYY-MM-DD'))
   }
 
   const handleJump = (val) => {
     const picked = dayjs(val)
     if (!picked.isValid()) return
-    // Select the picked date itself, capped at today
-    const capped = picked.isAfter(today) ? today : picked
+    const capped = picked.isAfter(todayDayjs) ? todayDayjs : picked
     onSelect(capped.format('YYYY-MM-DD'))
   }
 
-  const todayStr = today.format('YYYY-MM-DD')
-
   return (
     <div className="week-strip-wrap">
-      {/* Date jump picker sits above the strip */}
       <div className="week-jump-row">
         <DatePicker
           value={selectedDate || ''}
@@ -73,7 +74,6 @@ export default function WeekStrip({ selectedDate, onSelect, settings }) {
         />
       </div>
 
-      {/* Days row with nav arrows flanking */}
       <div className="week-strip">
         <button
           className={`week-nav-btn ${!canGoBack ? 'disabled' : ''}`}

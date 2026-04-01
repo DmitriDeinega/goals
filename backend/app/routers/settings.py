@@ -6,13 +6,6 @@ from ..database import get_db
 router = APIRouter()
 logger = logging.getLogger("goals.routers.settings")
 
-DEFAULTS = {
-    "first_day_of_week": "sunday",
-    "start_date": None,
-    "currency": "NIS",
-    "timezone": "Asia/Jerusalem",
-}
-
 
 @router.get("/")
 async def get_settings():
@@ -20,13 +13,10 @@ async def get_settings():
         db = get_db()
         doc = await db.settings.find_one({"_id": "global"})
         if not doc:
-            result = DEFAULTS.copy()
-        else:
-            doc.pop("_id", None)
-            result = {**DEFAULTS, **doc}
-        # Inject APP_ENV from server environment
-        result["app_env"] = os.getenv("APP_ENV", "PROD")
-        return result
+            raise RuntimeError("Settings not found in DB")
+        doc.pop("_id", None)
+        doc["app_env"] = os.getenv("APP_ENV", "PROD")
+        return doc
     except Exception as e:
         logger.error(f"Failed to get settings: {e}")
         raise

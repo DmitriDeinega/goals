@@ -109,8 +109,14 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
   const [editGoal, setEditGoal] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [localGoals, setLocalGoals] = useState(goals)
+  const isReorderingRef = useRef(false)
 
-  useEffect(() => { setLocalGoals(goals) }, [goals])
+  // Only sync from props when not in the middle of a reorder operation
+  useEffect(() => {
+    if (!isReorderingRef.current) {
+      setLocalGoals(goals)
+    }
+  }, [goals])
 
   const editVersionRef = useRef(null)
 
@@ -135,8 +141,16 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
     const oldIndex = localGoals.findIndex(g => g.id === active.id)
     const newIndex = localGoals.findIndex(g => g.id === over.id)
     const reordered = arrayMove(localGoals, oldIndex, newIndex)
+    // Set optimistic local state
     setLocalGoals(reordered)
-    await onReorder(reordered.map(g => g.id))
+    // Lock sync from props until API call completes
+    isReorderingRef.current = true
+    try {
+      await onReorder(reordered.map(g => g.id))
+    } finally {
+      // Release lock — next goals prop change will sync
+      isReorderingRef.current = false
+    }
   }
 
   const openEdit = (goal) => {
@@ -186,7 +200,12 @@ export default function GoalsPage({ goals, onAdd, onUpdate, onDelete, onSetEnabl
       )}
 
       <div className="goals-list">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        >
           <SortableContext items={localGoals.map(g => g.id)} strategy={verticalListSortingStrategy}>
             {localGoals.map(goal => (
               <SortableGoalCard key={goal.id} goal={goal} onEdit={openEdit} />

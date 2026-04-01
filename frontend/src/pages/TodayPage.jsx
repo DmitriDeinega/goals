@@ -1,39 +1,41 @@
 import WeekStrip from '../components/WeekStrip'
 import GoalRow from '../components/GoalRow'
 import WeekSummary from '../components/WeekSummary'
+import dayjs from 'dayjs'
 
-export default function TodayPage({ goals, selectedDate, setSelectedDate, getLog, onToggle, weekSummary, settings, currency }) {
-  const statsMap = {}
-  if (weekSummary?.goals) {
-    for (const g of weekSummary.goals) {
-      statsMap[g.goal_id] = g
-    }
-  }
+export default function TodayPage({
+  goals, goalWeeks, logs,
+  selectedDate, setSelectedDate,
+  getLog, onToggle,
+  weekSummary, weekStart,
+  settings, currency
+}) {
+  const today = dayjs().format('YYYY-MM-DD')
+  const weekEnd = dayjs(weekStart).add(6, 'day').format('YYYY-MM-DD')
 
-  // Distinguish between "no goals ever" vs "no goals this week"
   const hasAnyGoals = goals.length > 0
   const emptyMessage = !hasAnyGoals
     ? <>No goals yet.<br />Head to the Goals tab to add some.</>
     : <>No goals were tracked this week.</>
 
-  // Build goal rows from snapshot (past weeks) or live goals (current week)
-  // Snapshot preserves name, type, order, is_negative as they were that week
   const liveGoalMap = {}
   for (const g of goals) liveGoalMap[g.id] = g
 
-  const visibleGoals = weekSummary
-    ? weekSummary.goals
-        .map(s => {
-          const live = liveGoalMap[s.goal_id]
-          // Use snapshot fields if available, fall back to live for id/toggling
+  const visibleGoals = goalWeeks.length > 0
+    ? goalWeeks
+        .filter(gw => gw.enabled)
+        .map(gw => {
+          const live = liveGoalMap[gw.goal_id]
+          const snap = gw.snapshot || {}
           return {
-            id: s.goal_id,
-            name: s.goal_name ?? live?.name,
-            type: s.type ?? live?.type,
-            is_negative: s.is_negative ?? live?.is_negative ?? false,
-            times_per_day: s.times_per_day ?? live?.times_per_day,
-            times_per_week: s.times_per_week ?? live?.times_per_week,
-            order: s.order ?? live?.order ?? 0,
+            id: gw.goal_id,
+            name: snap.name ?? live?.name,
+            type: snap.type ?? live?.type,
+            is_negative: snap.is_negative ?? live?.is_negative ?? false,
+            times_per_day: snap.times_per_day ?? live?.times_per_day,
+            times_per_week: snap.times_per_week ?? live?.times_per_week,
+            reward_rules: snap.reward_rules ?? live?.reward_rules ?? [],
+            order: snap.order ?? live?.order ?? 0,
           }
         })
         .sort((a, b) => a.order - b.order)
@@ -42,7 +44,7 @@ export default function TodayPage({ goals, selectedDate, setSelectedDate, getLog
   return (
     <>
       <WeekStrip selectedDate={selectedDate} onSelect={setSelectedDate} settings={settings} />
-      <WeekSummary summary={weekSummary} currency={currency} />
+      <WeekSummary weekSummary={weekSummary} currency={currency} />
 
       {visibleGoals.length === 0 ? (
         <div className="empty-state">{emptyMessage}</div>
@@ -52,9 +54,12 @@ export default function TodayPage({ goals, selectedDate, setSelectedDate, getLog
             key={goal.id}
             goal={goal}
             date={selectedDate}
+            logs={logs}
+            weekStart={weekStart}
+            weekEnd={weekEnd}
+            today={today}
             getLog={getLog}
             onToggle={onToggle}
-            stats={statsMap[goal.id]}
             currency={currency}
           />
         ))

@@ -40,7 +40,7 @@ class GoalUpdate(BaseModel):
     reward_rules: Optional[List[RewardRule]] = None
     order: Optional[int] = None
     active: Optional[bool] = None
-    version: Optional[int] = None  # for optimistic locking
+    version: Optional[int] = None
 
 
 class GoalOut(BaseModel):
@@ -54,19 +54,55 @@ class GoalOut(BaseModel):
     order: int
     active: bool
     enabled: bool
-    version: int = 0  # increments on every save
+    version: int = 0
+
+
+class GoalWeekOut(BaseModel):
+    goal_id: str
+    week_start: str
+    enabled: bool
+    snapshot: dict
 
 
 class LogCreate(BaseModel):
     goal_id: str
     date: str
-    slot: int = 0
-    completed: bool
+    slot_index: int = 0
+    value: bool
 
 
 class LogOut(BaseModel):
-    id: str
     goal_id: str
     date: str
-    slot: int
-    completed: bool
+    slots: List[bool]
+
+
+class InitResponse(BaseModel):
+    goals: List[GoalOut]
+    goal_weeks: List[GoalWeekOut]
+    logs: List[LogOut]
+    settings: dict
+    seq: int
+
+
+class LogChangedPayload(BaseModel):
+    goal_id: str
+    logs: List[LogOut]
+    seq: int
+
+
+class GoalChangedPayload(BaseModel):
+    action: str
+    goal: Optional[GoalOut] = None
+    goal_id: Optional[str] = None
+    goal_week: Optional[GoalWeekOut] = None
+    logs: Optional[List[LogOut]] = None
+    new_order: Optional[int] = None
+    week_start: Optional[str] = None
+    seq: int = 0
+
+
+class DayChangedPayload(BaseModel):
+    date: str
+    logs: List[LogOut]
+    seq: int

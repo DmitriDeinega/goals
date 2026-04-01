@@ -1,36 +1,64 @@
 import { useEffect, useRef } from 'react'
+import { SESSION_ID, getLastSeq, setLastSeq } from '../api'
 
-export function useEvents({ onGoalsChanged, onLogsChanged }) {
-  const onGoalsRef = useRef(onGoalsChanged)
-  const onLogsRef = useRef(onLogsChanged)
+export function useEvents({ enabled, onLogChanged, onGoalChanged, onDayChanged, onOutOfSync }) {
+  const onLogRef = useRef(onLogChanged)
+  const onGoalRef = useRef(onGoalChanged)
+  const onDayChangedRef = useRef(onDayChanged)
+  const onOutOfSyncRef = useRef(onOutOfSync)
 
-  useEffect(() => { onGoalsRef.current = onGoalsChanged }, [onGoalsChanged])
-  useEffect(() => { onLogsRef.current = onLogsChanged }, [onLogsChanged])
+  useEffect(() => { onLogRef.current = onLogChanged }, [onLogChanged])
+  useEffect(() => { onGoalRef.current = onGoalChanged }, [onGoalChanged])
+  useEffect(() => { onDayChangedRef.current = onDayChanged }, [onDayChanged])
+  useEffect(() => { onOutOfSyncRef.current = onOutOfSync }, [onOutOfSync])
 
   useEffect(() => {
+    if (!enabled) return  // wait for init to complete before connecting
+
     let es
     let retryTimeout
     let retryDelay = 1000
 
-    function connect() {
-      es = new EventSource('/api/events/')
+    function handleEvent(data) {
+      const seq = Array.isArray(data) ? data[0]?.seq : data?.seq
+      if (seq === undefined) return { inSync: true, data }
 
-      es.addEventListener('goals_changed', () => {
-        onGoalsRef.current?.()
+      const expected = getLastSeq() + 1
+      if (seq !== expected) {
+        // Gap detected — trigger full reload
+        onOutOfSyncRef.current?.()
+        return { inSync: false }
+      }
+      setLastSeq(seq)
+      return { inSync: true, data }
+    }
+
+    function connect() {
+      es = new EventSource(`/api/events/?session_id=${SESSION_ID}`)
+
+      es.addEventListener('log_changed', (e) => {
+        const { inSync, data } = handleEvent(JSON.parse(e.data))
+        if (inSync) onLogRef.current?.(data)
       })
 
-      es.addEventListener('logs_changed', () => {
-        onLogsRef.current?.()
+      es.addEventListener('goal_changed', (e) => {
+        const { inSync, data } = handleEvent(JSON.parse(e.data))
+        if (inSync) onGoalRef.current?.(data)
+      })
+
+      es.addEventListener('day_changed', (e) => {
+        const { inSync, data } = handleEvent(JSON.parse(e.data))
+        if (inSync) onDayChangedRef.current?.(data)
       })
 
       es.addEventListener('ping', () => {
-        retryDelay = 1000 // reset backoff on successful ping
+        retryDelay = 1000
       })
 
       es.onerror = () => {
         es.close()
         retryTimeout = setTimeout(() => {
-          retryDelay = Math.min(retryDelay * 2, 30000) // exponential backoff, max 30s
+          retryDelay = Math.min(retryDelay * 2, 30000)
           connect()
         }, retryDelay)
       }
@@ -38,19 +66,9 @@ export function useEvents({ onGoalsChanged, onLogsChanged }) {
 
     connect()
 
-    // Refetch on tab becoming visible (covers SSE gap while hidden)
-    function onVisible() {
-      if (document.visibilityState === 'visible') {
-        onGoalsRef.current?.()
-        onLogsRef.current?.()
-      }
-    }
-    document.addEventListener('visibilitychange', onVisible)
-
     return () => {
       es?.close()
       clearTimeout(retryTimeout)
-      document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [])
+  }, [enabled])
 }

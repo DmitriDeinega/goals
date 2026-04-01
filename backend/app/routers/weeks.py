@@ -1,38 +1,27 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from bson import ObjectId
 import logging
 from ..database import get_db
-from ..time_utils import get_today, get_week_start
-
+from ..time_utils import get_today, get_week_start, get_week_end
+from ..models import GoalChangedPayload, GoalWeekOut
 from ..broadcaster import broadcast
+from ..sequence import increment_sequence
+from .goals import goal_from_doc, goal_week_from_doc, get_settings_cached, validate_client_seq
+from .logs import get_goal_week_logs
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.weeks")
-
-
-async def get_tz() -> str:
-    db = get_db()
-    settings = await db.settings.find_one({"_id": "global"})
-    return (settings or {}).get("timezone", "Asia/Jerusalem")
-
-
-async def get_first_day() -> str:
-    db = get_db()
-    settings = await db.settings.find_one({"_id": "global"})
-    return (settings or {}).get("first_day_of_week", "sunday")
 
 
 @router.post("/ensure")
 async def ensure_week():
     try:
         db = get_db()
-        tz = await get_tz()
-        first_day = await get_first_day()
+        tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
 
         goals = await db.goals.find({"active": True}).to_list(None)
-
         existing = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
         existing_ids = {e["goal_id"] for e in existing}
 
@@ -44,7 +33,6 @@ async def ensure_week():
                     "goal_id": gid,
                     "week_start": week_start,
                     "enabled": True,
-                    # Snapshot goal properties at enrollment time
                     "snapshot": {
                         "name": g.get("name"),
                         "order": g.get("order", 0),
@@ -73,14 +61,15 @@ async def ensure_week():
         raise
 
 
-@router.put("/{goal_id}/enabled")
-async def set_goal_enabled(goal_id: str, body: dict):
+@router.put("/{goal_id}/enabled", response_model=GoalChangedPayload)
+async def set_goal_enabled(goal_id: str, body: dict, request: Request):
     try:
         db = get_db()
-        tz = await get_tz()
-        first_day = await get_first_day()
+        await validate_client_seq(request)
+        tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
+        week_end = get_week_end(week_start)
         enabled = body.get("enabled", True)
 
         await db.goal_weeks.update_one(
@@ -88,9 +77,25 @@ async def set_goal_enabled(goal_id: str, body: dict):
             {"$set": {"enabled": enabled}},
             upsert=True,
         )
+
+        goal_doc = await db.goals.find_one({"_id": ObjectId(goal_id)})
+        goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
+        goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
+        seq = await increment_sequence()
+
+        payload = GoalChangedPayload(
+            action="updated",
+            goal=goal_from_doc(goal_doc, enabled),
+            goal_week=goal_week_from_doc(goal_week_doc),
+            logs=goal_logs,
+            week_start=week_start,
+            seq=seq,
+        )
+
         logger.info(f"Goal {goal_id} enabled={enabled} for week {week_start}")
-        await broadcast("goals_changed")
-        return {"goal_id": goal_id, "week_start": week_start, "enabled": enabled}
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
+        return payload
     except Exception as e:
         logger.error(f"Failed to set goal enabled {goal_id}: {e}")
         raise

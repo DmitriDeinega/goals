@@ -1,28 +1,109 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 import logging
 from ..database import get_db
-from ..models import LogCreate, LogOut
-from ..time_utils import get_today
-
+from ..models import LogCreate, LogOut, LogChangedPayload
+from ..time_utils import get_today, get_week_start, get_week_end
 from ..broadcaster import broadcast
+from ..sequence import increment_sequence, get_sequence
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.logs")
 
 
-async def get_tz(db) -> str:
+async def get_settings(db):
     s = await db.settings.find_one({"_id": "global"})
-    return (s or {}).get("timezone", "Asia/Jerusalem")
+    if not s:
+        raise RuntimeError("Settings not found in DB")
+    return s["timezone"], s["first_day_of_week"]
 
 
 def log_from_doc(doc) -> LogOut:
     return LogOut(
-        id=str(doc["_id"]),
         goal_id=doc["goal_id"],
         date=doc["date"],
-        slot=doc.get("slot", 0),
-        completed=doc["completed"],
+        slots=doc["slots"],
     )
+
+
+async def get_goal_week_logs(db, goal_id: str, week_start: str, week_end: str) -> list[LogOut]:
+    cursor = db.logs.find({
+        "goal_id": goal_id,
+        "date": {"$gte": week_start, "$lte": week_end}
+    })
+    return [log_from_doc(doc) async for doc in cursor]
+
+
+async def ensure_slots_for_goal(db, goal_id: str, week_start: str, week_end: str, times_per_day: int, is_negative: bool):
+    from datetime import date as Date, timedelta
+    default_value = is_negative  # True for negative (avoided by default), False for positive
+
+    current = Date.fromisoformat(week_start)
+    end = Date.fromisoformat(week_end)
+
+    while current <= end:
+        date_str = current.isoformat()
+        existing = await db.logs.find_one({"goal_id": goal_id, "date": date_str})
+        if not existing:
+            await db.logs.insert_one({
+                "goal_id": goal_id,
+                "date": date_str,
+                "slots": [default_value] * times_per_day,
+            })
+        current += timedelta(days=1)
+
+
+async def reconcile_slots_for_goal(db, goal_id: str, week_start: str, week_end: str, new_times_per_day: int, is_negative: bool):
+    from datetime import date as Date, timedelta
+    default_value = is_negative
+
+    current = Date.fromisoformat(week_start)
+    end = Date.fromisoformat(week_end)
+
+    while current <= end:
+        date_str = current.isoformat()
+        doc = await db.logs.find_one({"goal_id": goal_id, "date": date_str})
+
+        if not doc:
+            # No log yet — create with new size
+            await db.logs.insert_one({
+                "goal_id": goal_id,
+                "date": date_str,
+                "slots": [default_value] * new_times_per_day,
+            })
+        else:
+            current_slots = doc["slots"]
+            current_count = len(current_slots)
+
+            if new_times_per_day > current_count:
+                # Add slots with default value
+                new_slots = current_slots + [default_value] * (new_times_per_day - current_count)
+                await db.logs.update_one(
+                    {"goal_id": goal_id, "date": date_str},
+                    {"$set": {"slots": new_slots}}
+                )
+            elif new_times_per_day < current_count:
+                # Remove unfulfilled slots from the end first
+                slots = current_slots[:]
+                while len(slots) > new_times_per_day:
+                    # Find last unfulfilled slot (default value) and remove it
+                    # Search from end
+                    removed = False
+                    for i in range(len(slots) - 1, -1, -1):
+                        if slots[i] == default_value:
+                            slots.pop(i)
+                            removed = True
+                            break
+                    if not removed:
+                        # All slots are fulfilled — just truncate
+                        slots = slots[:new_times_per_day]
+                        break
+
+                await db.logs.update_one(
+                    {"goal_id": goal_id, "date": date_str},
+                    {"$set": {"slots": slots}}
+                )
+
+        current += timedelta(days=1)
 
 
 @router.get("/", response_model=list[LogOut])
@@ -41,125 +122,41 @@ async def get_logs(date: str = None, week_start: str = None, week_end: str = Non
         raise
 
 
-@router.post("/", response_model=LogOut)
-async def upsert_log(log: LogCreate):
+@router.post("/", response_model=LogChangedPayload)
+async def upsert_log(log: LogCreate, request: Request):
     try:
         db = get_db()
-        tz = await get_tz(db)
+        tz, first_day = await get_settings(db)
         today_str = get_today(tz)
         if log.date > today_str:
             raise HTTPException(status_code=400, detail="Cannot log a future date")
-        filter_q = {"goal_id": log.goal_id, "date": log.date, "slot": log.slot}
-        update = {"$set": {"completed": log.completed}}
-        result = await db.logs.find_one_and_update(
-            filter_q, update, upsert=True, return_document=True,
+
+        # Validate client sequence
+        client_seq = request.headers.get("X-Sequence")
+        if client_seq is not None:
+            current_seq = await get_sequence()
+            if int(client_seq) != current_seq:
+                raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+
+        # Atomically update the specific slot
+        await db.logs.update_one(
+            {"goal_id": log.goal_id, "date": log.date},
+            {"$set": {f"slots.{log.slot_index}": log.value}},
+            upsert=False,  # slot doc must already exist
         )
-        if not result:
-            result = await db.logs.find_one(filter_q)
-        await broadcast("logs_changed")
-        return log_from_doc(result)
+
+        week_start = get_week_start(log.date, first_day)
+        week_end = get_week_end(week_start)
+        goal_logs = await get_goal_week_logs(db, log.goal_id, week_start, week_end)
+
+        seq = await increment_sequence()
+        payload = LogChangedPayload(goal_id=log.goal_id, logs=goal_logs, seq=seq)
+
+        session_id = request.headers.get("X-Session-ID")
+        await broadcast("log_changed", payload.model_dump(), exclude_session=session_id)
+        return payload
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to upsert log: {e}")
-        raise
-
-
-@router.get("/week-summary")
-async def week_summary(week_start: str, week_end: str, selected_date: str = None):
-    from datetime import date as Date, timedelta
-    try:
-        db = get_db()
-        tz = await get_tz(db)
-        today_str = get_today(tz)
-        cutoff = min(selected_date, today_str) if selected_date else today_str
-
-        gw_entries = await db.goal_weeks.find(
-            {"week_start": week_start, "enabled": True}
-        ).to_list(None)
-
-        if not gw_entries:
-            return {"week_start": week_start, "week_end": week_end, "goals": [], "total_earned": 0}
-
-        logs = await db.logs.find({"date": {"$gte": week_start, "$lte": week_end}}).to_list(None)
-
-        # Always use snapshot — goal definitions are frozen at enrollment time
-        goals = []
-        for e in gw_entries:
-            snap = e.get("snapshot")
-            if snap:
-                goals.append({"_id": e["goal_id"], **snap})
-
-        def days_up_to_cutoff():
-            current = Date.fromisoformat(week_start)
-            end = Date.fromisoformat(min(week_end, cutoff))
-            days = []
-            while current <= end:
-                days.append(current.isoformat())
-                current += timedelta(days=1)
-            return days
-
-        week_days = days_up_to_cutoff()
-        summary = []
-
-        for goal in goals:
-            gid = str(goal["_id"])
-            goal_logs = [l for l in logs if l["goal_id"] == gid]
-            is_negative = goal.get("is_negative", False)
-
-            if goal["type"] == "daily":
-                tpd = goal.get("times_per_day") or 1
-                if tpd > 1:
-                    if is_negative:
-                        failed_days = set()
-                        for d in week_days:
-                            if any(not l["completed"] for l in goal_logs if l["date"] == d):
-                                failed_days.add(d)
-                        completions = len(week_days) - len(failed_days)
-                    else:
-                        completions = sum(
-                            1 for d in week_days
-                            if sum(1 for l in goal_logs if l["date"] == d and l["completed"]) >= tpd
-                        )
-                else:
-                    if is_negative:
-                        failed = {l["date"] for l in goal_logs if not l["completed"]}
-                        completions = len(week_days) - len(failed & set(week_days))
-                    else:
-                        completions = sum(1 for l in goal_logs if l["completed"] and l["date"] in week_days)
-                total_slots = 7
-            else:
-                tpw = goal.get("times_per_week", 7)
-                if is_negative:
-                    failed = {l["date"] for l in goal_logs if not l["completed"]}
-                    completions = len(week_days) - len(failed & set(week_days))
-                else:
-                    raw = sum(1 for l in goal_logs if l["completed"] and l["date"] in week_days)
-                    completions = min(raw, tpw)
-                total_slots = tpw
-
-            rules = sorted(goal.get("reward_rules", []), key=lambda r: r["min_completions"])
-            earned = sum(r["reward_amount"] for r in rules if completions >= r["min_completions"])
-
-            summary.append({
-                "goal_id": gid,
-                "goal_name": goal.get("name"),
-                "order": goal.get("order", 0),
-                "type": goal.get("type"),
-                "is_negative": goal.get("is_negative", False),
-                "times_per_day": goal.get("times_per_day"),
-                "times_per_week": goal.get("times_per_week"),
-                "completions": completions,
-                "total_slots": total_slots,
-                "earned_reward": earned,
-            })
-
-        return {
-            "week_start": week_start,
-            "week_end": week_end,
-            "goals": summary,
-            "total_earned": sum(g["earned_reward"] for g in summary),
-        }
-    except Exception as e:
-        logger.error(f"Failed to get week summary: {e}")
         raise

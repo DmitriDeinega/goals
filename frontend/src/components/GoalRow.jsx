@@ -1,76 +1,72 @@
+import { computeGoalStats, getDaysUpTo } from '../hooks/useAppState'
+import dayjs from 'dayjs'
+
 function fmt(currency, amount) {
   if (!currency || currency === 'NIS') return `₪${amount}`
   if (currency === 'USD') return `$${amount}`
   return `${amount} ${currency}`
 }
 
-export default function GoalRow({ goal, date, getLog, onToggle, stats, currency }) {
+export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, getLog, onToggle, currency }) {
   const isNeg = goal.is_negative
   const tpd = goal.times_per_day || 1
 
-  const progress = stats
-    ? `${stats.completions}/${stats.total_slots}`
-    : null
+  const cutoff = weekEnd < today ? weekEnd : today
+  const weekDays = getDaysUpTo(weekStart, cutoff)
+  const { completions, total_slots, earned_reward } = computeGoalStats(goal, logs, weekDays)
 
-  // Always render earned column — empty string holds the space when no reward yet
-  const earned = stats?.earned_reward > 0 ? fmt(currency, stats.earned_reward) : ''
+  const progress = `${completions}/${total_slots}`
+  const earned = earned_reward > 0 ? fmt(currency, earned_reward) : ''
 
-  const toggles = goal.type === 'daily' && tpd > 1
-    ? Array.from({ length: tpd }, (_, i) => {
-        const log = getLog(goal.id, date, i)
-        return { slot: i, done: log ? log.completed : (isNeg ? true : false) }
-      })
-    : null
+  // Get log doc for this goal on this date — contains slots array
+  const logDoc = getLog(goal.id, date)
+  const defaultSlotValue = isNeg ? true : false
 
-  const singleLog = getLog(goal.id, date, 0)
-  const singleDone = singleLog ? singleLog.completed : (isNeg ? true : false)
+  const slots = logDoc
+    ? logDoc.slots
+    : Array(tpd).fill(defaultSlotValue)
 
   return (
     <div className="goal-row">
-      {/* Fixed left column: earned reward */}
       <span className="row-earned">{earned}</span>
+      <span className="goal-progress">{progress}</span>
 
-      {/* Fixed: x/y progress */}
-      {progress && <span className="goal-progress">{progress}</span>}
-
-      {/* Flexible: goal name */}
       <span className={`goal-name ${isNeg ? 'negative' : ''}`}>
         {goal.name}
         {isNeg && <span className="negative-badge">avoid</span>}
       </span>
 
-      {/* Right: toggle(s) */}
-      {toggles ? (
+      {slots.length > 1 ? (
         <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-          {toggles.map(({ slot, done }) => (
+          {slots.map((value, i) => (
             <button
-              key={slot}
-              className={`toggle-btn ${getStatusClass(done, isNeg)}`}
-              onClick={() => onToggle(goal.id, date, slot, done)}
-              title={`${slot + 1} of ${tpd}`}
+              key={i}
+              className={`toggle-btn ${getStatusClass(value, isNeg)}`}
+              onClick={() => onToggle(goal.id, date, i, value)}
+              title={`${i + 1} of ${tpd}`}
             >
-              {getIcon(done, isNeg)}
+              {getIcon(value, isNeg)}
             </button>
           ))}
         </div>
       ) : (
         <button
-          className={`toggle-btn ${getStatusClass(singleDone, isNeg)}`}
-          onClick={() => onToggle(goal.id, date, 0, singleDone)}
+          className={`toggle-btn ${getStatusClass(slots[0], isNeg)}`}
+          onClick={() => onToggle(goal.id, date, 0, slots[0])}
         >
-          {getIcon(singleDone, isNeg)}
+          {getIcon(slots[0], isNeg)}
         </button>
       )}
     </div>
   )
 }
 
-function getStatusClass(done, isNegative) {
-  if (isNegative) return done ? '' : 'fail'
-  return done ? 'success' : ''
+function getStatusClass(value, isNegative) {
+  if (isNegative) return value ? '' : 'fail'
+  return value ? 'success' : ''
 }
 
-function getIcon(done, isNegative) {
-  if (isNegative) return done ? '' : '✗'
-  return done ? '✓' : ''
+function getIcon(value, isNegative) {
+  if (isNegative) return value ? '' : '✗'
+  return value ? '✓' : ''
 }

@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import dayjs from 'dayjs'
-import { useGoals } from './hooks/useGoals'
-import { useLogs } from './hooks/useLogs'
-import { useSettings } from './hooks/useSettings'
+import { useAppState, computeWeekSummary } from './hooks/useAppState'
 import { useEvents } from './hooks/useEvents'
 import { ensureWeek } from './api'
 import TodayPage from './pages/TodayPage'
@@ -11,32 +9,90 @@ import ToastContainer from './components/Toast'
 
 const TABS = ['today', 'goals']
 
+function getWeekStart(date, firstDay = 'sunday') {
+  const d = dayjs(date)
+  if (firstDay === 'monday') {
+    const dow = d.day()
+    const diff = dow === 0 ? -6 : 1 - dow
+    return d.add(diff, 'day').format('YYYY-MM-DD')
+  }
+  return d.startOf('week').format('YYYY-MM-DD')
+}
+
 export default function App() {
   const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
+  const [sseEnabled, setSseEnabled] = useState(false)
 
-  const [weekReady, setWeekReady] = useState(false)
-  const { goals, add, update, remove, setEnabled, reorder, reload: reloadGoals } = useGoals()
-  const { weekSummary, toggle, getLog, reload: reloadLogs } = useLogs(selectedDate, weekReady)
-  const { settings } = useSettings()
+  const {
+    goals, goalWeeks, logs, settings, loading, load, loadWeek, visibleWeekStart,
+    toggle, addGoal, editGoal, removeGoal, setEnabled, reorder,
+    getLog, handleLogChanged, handleGoalChanged, applyDayChanged,
+  } = useAppState()
 
   const currency = settings?.currency || 'NIS'
   const isDev = settings?.app_env === 'DEV'
   const appTitle = isDev ? 'Goals DEV' : 'Goals'
 
-  useEvents({ onGoalsChanged: reloadGoals, onLogsChanged: reloadLogs })
-
   useEffect(() => { document.title = appTitle }, [appTitle])
-  useEffect(() => { ensureWeek().catch(() => {}).finally(() => setWeekReady(true)) }, [])
+
+  useEffect(() => {
+    ensureWeek().catch(() => {})
+    load().then(() => {
+      setSseEnabled(true)  // connect SSE only after init completes
+    })
+  }, [])
+
+  const firstDay = settings?.first_day_of_week || 'sunday'
+  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))
+  const currentWeekStart = getWeekStart(today, firstDay)
+  const weekStart = getWeekStart(selectedDate, firstDay)
+  const weekEnd = dayjs(weekStart).add(6, 'day').format('YYYY-MM-DD')
+
+  // Load past week data when navigating
+  useEffect(() => {
+    if (loading) return
+    if (weekStart === visibleWeekStart) return
+    loadWeek(weekStart)
+  }, [weekStart, visibleWeekStart, loading])
+
+  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
+
+  const onDayChanged = ({ date, logs: newLogs }) => {
+    setToday(date)
+    const newDateWeekStart = getWeekStart(date, firstDay)
+    if (newDateWeekStart === visibleWeekStart) {
+      applyDayChanged(date, newLogs)
+    }
+  }
+
+  // Full reload on out of sync or tab becoming visible
+  const handleOutOfSync = () => {
+    load()
+  }
+
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [load])
+
+  useEvents({
+    enabled: sseEnabled,
+    onLogChanged: handleLogChanged,
+    onGoalChanged: handleGoalChanged,
+    onDayChanged,
+    onOutOfSync: handleOutOfSync,
+  })
 
   const handleTabChange = (newTab) => {
     if (newTab === tab) return
     setTab(newTab)
     sessionStorage.setItem('goals_tab', newTab)
-    if (newTab === 'today') { reloadGoals(); reloadLogs() }
   }
 
-  // Swipe left/right to switch tabs
   useEffect(() => {
     let startX = null, startY = null
     const onTouchStart = (e) => {
@@ -62,10 +118,11 @@ export default function App() {
     }
   }, [tab])
 
+  if (loading) return null
+
   return (
     <div className="app">
       <ToastContainer />
-
       <div className="header">
         <div className="header-top">
           <span className="app-title">
@@ -74,7 +131,6 @@ export default function App() {
           </span>
         </div>
       </div>
-
       <div className="tabs">
         <button className={`tab ${tab === 'today' ? 'active' : ''}`} onClick={() => handleTabChange('today')}>
           Today
@@ -83,25 +139,27 @@ export default function App() {
           Goals
         </button>
       </div>
-
       <div className="content">
         {tab === 'today' ? (
           <TodayPage
             goals={goals}
+            goalWeeks={goalWeeks}
+            logs={logs}
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
             getLog={getLog}
             onToggle={toggle}
             weekSummary={weekSummary}
+            weekStart={weekStart}
             settings={settings}
             currency={currency}
           />
         ) : (
           <GoalsPage
             goals={goals}
-            onAdd={add}
-            onUpdate={update}
-            onDelete={remove}
+            onAdd={addGoal}
+            onUpdate={editGoal}
+            onDelete={removeGoal}
             onSetEnabled={setEnabled}
             onReorder={reorder}
           />
