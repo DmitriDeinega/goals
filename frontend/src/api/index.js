@@ -2,7 +2,9 @@ import { toast } from '../components/Toast'
 
 const BASE = '/api'
 
-export const SESSION_ID = crypto.randomUUID()
+export const SESSION_ID = typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
 
 let _lastSeq = 0
 export const getLastSeq = () => _lastSeq
