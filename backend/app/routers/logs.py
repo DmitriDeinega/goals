@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 import logging
+from bson import ObjectId
 from ..database import get_db
 from ..models import LogCreate, LogOut, LogChangedPayload
 from ..time_utils import get_today, get_week_start, get_week_end
@@ -139,11 +140,26 @@ async def upsert_log(log: LogCreate, request: Request):
                 raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
 
         # Atomically update the specific slot
-        await db.logs.update_one(
+        result = await db.logs.update_one(
             {"goal_id": log.goal_id, "date": log.date},
             {"$set": {f"slots.{log.slot_index}": log.value}},
-            upsert=False,  # slot doc must already exist
+            upsert=False,
         )
+
+        if result.matched_count == 0:
+            # Document doesn't exist — create with default slots
+            goal_doc = await db.goals.find_one({"_id": ObjectId(log.goal_id)})
+            if not goal_doc:
+                raise HTTPException(status_code=404, detail="Goal not found")
+            tpd = goal_doc.get("times_per_day") or 1
+            is_neg = goal_doc.get("is_negative", False)
+            default_slots = [is_neg] * tpd
+            default_slots[log.slot_index] = log.value
+            await db.logs.insert_one({
+                "goal_id": log.goal_id,
+                "date": log.date,
+                "slots": default_slots,
+            })
 
         week_start = get_week_start(log.date, first_day)
         week_end = get_week_end(week_start)

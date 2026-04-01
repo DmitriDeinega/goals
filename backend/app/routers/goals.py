@@ -30,7 +30,6 @@ def goal_from_doc(doc, enabled: bool = True) -> GoalOut:
         times_per_day=doc.get("times_per_day"),
         reward_rules=reward_rules,
         order=doc.get("order", 0),
-        active=doc.get("active", True),
         enabled=enabled,
         version=doc.get("version", 0),
     )
@@ -60,7 +59,7 @@ async def get_goals():
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
-        goals = [doc async for doc in db.goals.find({"active": True}).sort("order", 1)]
+        goals = [doc async for doc in db.goals.find({}).sort("order", 1)]
         entries = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
         enabled_map = {e["goal_id"]: e.get("enabled", True) for e in entries}
         return [goal_from_doc(g, enabled_map.get(str(g["_id"]), True)) for g in goals]
@@ -81,13 +80,11 @@ async def create_goal(goal: GoalCreate, request: Request):
 
         existing = await db.goals.find_one({
             "name": {"$regex": f"^{goal.name.strip()}$", "$options": "i"},
-            "active": True
         })
         if existing:
             raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
         doc = goal.model_dump()
-        doc["active"] = True
         doc["version"] = 1
         result = await db.goals.insert_one(doc)
         gid = str(result.inserted_id)
@@ -111,7 +108,7 @@ async def create_goal(goal: GoalCreate, request: Request):
 
         if goal.type == "daily":
             tpd = goal.times_per_day or 1
-            await ensure_slots_for_goal(db, gid, today, today, tpd, goal.is_negative)
+            await ensure_slots_for_goal(db, gid, week_start, today, tpd, goal.is_negative)
 
         goal_week_doc = await db.goal_weeks.find_one({"goal_id": gid, "week_start": week_start})
         goal_logs = await get_goal_week_logs(db, gid, week_start, week_end)
@@ -158,7 +155,6 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
         if name_val:
             existing = await db.goals.find_one({
                 "name": {"$regex": f"^{name_val.strip()}$", "$options": "i"},
-                "active": True,
                 "_id": {"$ne": ObjectId(goal_id)}
             })
             if existing:
@@ -177,9 +173,24 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
         if not update_data:
             raise HTTPException(status_code=400, detail="No fields to update")
 
+        # Clear irrelevant field when type changes
+        new_type = update_data.get("type") or current.get("type")
+        if new_type == "daily":
+            update_data["times_per_week"] = None
+        elif new_type == "weekly_x":
+            update_data["times_per_day"] = None
+
         update_data["version"] = (client_version if client_version is not None else 0) + 1
 
-        await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": update_data})
+        # Separate None values for $unset
+        unset_data = {k: "" for k, v in update_data.items() if v is None}
+        set_data = {k: v for k, v in update_data.items() if v is not None}
+
+        mongo_update = {"$set": set_data}
+        if unset_data:
+            mongo_update["$unset"] = unset_data
+
+        await db.goals.update_one({"_id": ObjectId(goal_id)}, mongo_update)
         updated = await db.goals.find_one({"_id": ObjectId(goal_id)})
 
         tz, first_day = await get_settings_cached(db)
@@ -204,10 +215,39 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
         )
 
         old_tpd = current.get("times_per_day")
+        old_type = current.get("type")
         new_tpd = updated.get("times_per_day")
+        new_type = updated.get("type")
         new_is_negative = updated.get("is_negative", False)
-        if updated.get("type") == "daily" and old_tpd != new_tpd and new_tpd:
-            await reconcile_slots_for_goal(db, goal_id, week_start, week_end, new_tpd, new_is_negative)
+
+        if new_type == "daily":
+            if old_type != "daily":
+                # Type changed to daily — reconcile handles existing slots correctly
+                await reconcile_slots_for_goal(db, goal_id, week_start, get_today(tz), new_tpd or 1, new_is_negative)
+            elif old_tpd != new_tpd and new_tpd:
+                # times_per_day changed — reconcile existing slots
+                await reconcile_slots_for_goal(db, goal_id, week_start, week_end, new_tpd, new_is_negative)
+        elif new_type == "weekly_x" and old_type == "daily":
+            # Type changed to weekly_x — collapse slots to single slot per day
+            from datetime import date as Date, timedelta
+            current_date = Date.fromisoformat(week_start)
+            end_date = Date.fromisoformat(week_end)
+            while current_date <= end_date:
+                date_str = current_date.isoformat()
+                doc = await db.logs.find_one({"goal_id": goal_id, "date": date_str})
+                if doc and len(doc["slots"]) > 1:
+                    slots = doc["slots"]
+                    if new_is_negative:
+                        # Negative: failed if ANY slot was false
+                        collapsed = [all(slots)]
+                    else:
+                        # Positive: succeeded if ANY slot was true
+                        collapsed = [any(slots)]
+                    await db.logs.update_one(
+                        {"goal_id": goal_id, "date": date_str},
+                        {"$set": {"slots": collapsed}}
+                    )
+                current_date += timedelta(days=1)
 
         goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
@@ -239,10 +279,28 @@ async def delete_goal(goal_id: str, request: Request):
         db = get_db()
         await validate_client_seq(request)
         tz, first_day = await get_settings_cached(db)
-        week_start = get_week_start(get_today(tz), first_day)
+        today = get_today(tz)
+        week_start = get_week_start(today, first_day)
+        week_end = get_week_end(week_start)
 
-        await db.goals.update_one({"_id": ObjectId(goal_id)}, {"$set": {"active": False}})
+        # Hard delete the goal
+        await db.goals.delete_one({"_id": ObjectId(goal_id)})
+        # Delete current week goal_weeks only — past weeks keep their snapshot
         await db.goal_weeks.delete_many({"goal_id": goal_id, "week_start": week_start})
+        # Delete current week logs only — past weeks keep their logs
+        await db.logs.delete_many({"goal_id": goal_id, "date": {"$gte": week_start, "$lte": week_end}})
+
+        # Reorder remaining goals to fill the gap
+        remaining = await db.goals.find({}).sort("order", 1).to_list(None)
+        reordered_goals = []
+        for i, g in enumerate(remaining):
+            if g.get("order") != i:
+                await db.goals.update_one({"_id": g["_id"]}, {"$set": {"order": i}})
+                await db.goal_weeks.update_one(
+                    {"goal_id": str(g["_id"]), "week_start": week_start},
+                    {"$set": {"snapshot.order": i}},
+                )
+            reordered_goals.append({"goal_id": str(g["_id"]), "new_order": i})
 
         seq = await increment_sequence()
         payload = GoalChangedPayload(
@@ -250,9 +308,10 @@ async def delete_goal(goal_id: str, request: Request):
             goal_id=goal_id,
             week_start=week_start,
             seq=seq,
+            reordered_goals=reordered_goals,
         )
 
-        logger.info(f"Deleted goal: {goal_id}")
+        logger.info(f"Deleted goal: {goal_id}, reordered {len(reordered_goals)} remaining goals")
         session_id = request.headers.get("X-Session-ID")
         await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
         return payload

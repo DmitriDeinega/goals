@@ -23,6 +23,7 @@ export default function App() {
   const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [sseEnabled, setSseEnabled] = useState(false)
+  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))
 
   const {
     goals, goalWeeks, logs, settings, loading, load, loadWeek, visibleWeekStart,
@@ -38,25 +39,28 @@ export default function App() {
 
   useEffect(() => {
     ensureWeek().catch(() => {})
-    load().then(() => {
-      setSseEnabled(true)  // connect SSE only after init completes
-    })
+    load().then(() => setSseEnabled(true))
   }, [])
 
   const firstDay = settings?.first_day_of_week || 'sunday'
-  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))
-  const currentWeekStart = getWeekStart(today, firstDay)
   const weekStart = getWeekStart(selectedDate, firstDay)
   const weekEnd = dayjs(weekStart).add(6, 'day').format('YYYY-MM-DD')
 
-  // Load past week data when navigating
+  // Track if we're waiting for week data to load
+  const weekLoadingRef = useRef(false)
+
   useEffect(() => {
     if (loading) return
     if (weekStart === visibleWeekStart) return
-    loadWeek(weekStart)
+    weekLoadingRef.current = true
+    loadWeek(weekStart).then(() => {
+      weekLoadingRef.current = false
+    })
   }, [weekStart, visibleWeekStart, loading])
 
-  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
+  // Only compute summary when data matches the visible week to avoid flash
+  const summaryWeekStart = visibleWeekStart || weekStart
+  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, summaryWeekStart, weekEnd, today)
 
   const onDayChanged = ({ date, logs: newLogs }) => {
     setToday(date)
@@ -66,10 +70,7 @@ export default function App() {
     }
   }
 
-  // Full reload on out of sync or tab becoming visible
-  const handleOutOfSync = () => {
-    load()
-  }
+  const handleOutOfSync = () => load()
 
   useEffect(() => {
     function onVisible() {
@@ -150,7 +151,7 @@ export default function App() {
             getLog={getLog}
             onToggle={toggle}
             weekSummary={weekSummary}
-            weekStart={weekStart}
+            weekStart={visibleWeekStart || weekStart}
             settings={settings}
             currency={currency}
           />

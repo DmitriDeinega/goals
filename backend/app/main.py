@@ -87,13 +87,9 @@ def log_from_doc(doc) -> LogOut:
 
 
 async def initialize_today_if_needed(db, today: str, week_start: str, first_day: str, session_id: str = None):
-    existing = await db.logs.find_one({"date": today})
-    if existing:
-        return None
-
     from .routers.logs import ensure_slots_for_goal
 
-    all_goals = await db.goals.find({"active": True}).to_list(None)
+    all_goals = await db.goals.find({}).to_list(None)
     existing_gw = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
     existing_ids = {e["goal_id"] for e in existing_gw}
 
@@ -115,10 +111,18 @@ async def initialize_today_if_needed(db, today: str, week_start: str, first_day:
                 }
             })
 
+    # Pre-populate today's slots for daily goals that don't have a log yet
     daily_goals = [g for g in all_goals if g.get("type") == "daily"]
+    initialized_any = False
     for g in daily_goals:
         gid = str(g["_id"])
-        await ensure_slots_for_goal(db, gid, today, today, g.get("times_per_day") or 1, g.get("is_negative", False))
+        existing = await db.logs.find_one({"goal_id": gid, "date": today})
+        if not existing:
+            await ensure_slots_for_goal(db, gid, today, today, g.get("times_per_day") or 1, g.get("is_negative", False))
+            initialized_any = True
+
+    if not initialized_any:
+        return None
 
     log_docs = await db.logs.find({"date": today}).to_list(None)
     logs_data = [log_from_doc(doc).model_dump() for doc in log_docs]
@@ -141,7 +145,7 @@ async def init(request: Request):
         session_id = request.headers.get("X-Session-ID")
         await initialize_today_if_needed(db, today, week_start, first_day, session_id)
 
-        goal_docs = [doc async for doc in db.goals.find({"active": True}).sort("order", 1)]
+        goal_docs = [doc async for doc in db.goals.find({}).sort("order", 1)]
         goal_week_docs = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
         enabled_map = {e["goal_id"]: e.get("enabled", True) for e in goal_week_docs}
         goals_out = [goal_from_doc(g, enabled_map.get(str(g["_id"]), True)) for g in goal_docs]

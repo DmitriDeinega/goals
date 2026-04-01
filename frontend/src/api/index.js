@@ -2,9 +2,7 @@ import { toast } from '../components/Toast'
 
 const BASE = '/api'
 
-export const SESSION_ID = typeof crypto.randomUUID === 'function'
-  ? crypto.randomUUID()
-  : Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+export const SESSION_ID = crypto.randomUUID()
 
 let _lastSeq = 0
 export const getLastSeq = () => _lastSeq
@@ -33,7 +31,13 @@ async function request(path, options = {}) {
       throw new Error(msg)
     }
     const data = await res.json()
-    if (data?.seq !== undefined) setLastSeq(data.seq)
+    // Update lastSeq from response — handle both single object and array (reorder)
+    if (Array.isArray(data)) {
+      const seq = data[data.length - 1]?.seq
+      if (seq !== undefined) setLastSeq(seq)
+    } else if (data?.seq !== undefined) {
+      setLastSeq(data.seq)
+    }
     return data
   } catch (e) {
     if (e.status === 409) throw e

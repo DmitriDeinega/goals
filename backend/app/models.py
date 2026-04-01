@@ -39,7 +39,6 @@ class GoalUpdate(BaseModel):
     times_per_day: Optional[int] = None
     reward_rules: Optional[List[RewardRule]] = None
     order: Optional[int] = None
-    active: Optional[bool] = None
     version: Optional[int] = None
 
 
@@ -52,7 +51,6 @@ class GoalOut(BaseModel):
     times_per_day: Optional[int]
     reward_rules: List[RewardRule]
     order: int
-    active: bool
     enabled: bool
     version: int = 0
 
@@ -100,6 +98,7 @@ class GoalChangedPayload(BaseModel):
     new_order: Optional[int] = None
     week_start: Optional[str] = None
     seq: int = 0
+    reordered_goals: Optional[List[dict]] = None  # [{goal_id, new_order}] after delete
 
 
 class DayChangedPayload(BaseModel):

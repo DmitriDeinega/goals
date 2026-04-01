@@ -19,10 +19,10 @@ export function computeGoalStats(goal, weekLogs, weekDays) {
       completions = weekDays.reduce((acc, d) => {
         const log = goalLogs.find(l => l.date === d)
         if (!log) return acc
-        const successCount = isNeg
-          ? log.slots.filter(s => s).length   // negative: true = avoided
-          : log.slots.filter(s => s).length   // positive: true = done
-        return acc + (successCount >= tpd ? 1 : 0)
+        const success = isNeg
+          ? log.slots.some(s => s)          // negative: success if at least one avoided (not all failed)
+          : log.slots.every(s => s)         // positive: success only if all done
+        return acc + (success ? 1 : 0)
       }, 0)
     } else {
       if (isNeg) {
@@ -170,7 +170,8 @@ export function useAppState() {
   // ── Goal actions ─────────────────────────────────────────────────────────
 
   const addGoal = async (data) => {
-    const payload = await createGoal({ ...data, order: goals.length })
+    const maxOrder = goals.length > 0 ? Math.max(...goals.map(g => g.order)) : -1
+    const payload = await createGoal({ ...data, order: maxOrder + 1 })
     await ensureWeek()
     applyGoalChanged(payload)
   }
@@ -219,10 +220,10 @@ export function useAppState() {
   }
 
   const applyGoalChanged = (payload) => {
-    const { action, goal, goal_id, goal_week, logs: goalLogs, new_order, week_start } = payload
+    const { action, goal, goal_id, goal_week, logs: goalLogs, new_order, week_start, reordered_goals } = payload
 
     if (action === 'created') {
-      setGoals(prev => [...prev, goal])
+      setGoals(prev => [...prev, goal].sort((a, b) => a.order - b.order))
       if (week_start === visibleWeekStart) {
         setWeekState(prev => ({
           ...prev,
@@ -233,7 +234,7 @@ export function useAppState() {
     }
 
     if (action === 'updated') {
-      setGoals(prev => prev.map(g => g.id === goal.id ? goal : g))
+      setGoals(prev => prev.map(g => g.id === goal.id ? goal : g).sort((a, b) => a.order - b.order))
       if (week_start === visibleWeekStart) {
         setWeekState(prev => {
           const updatedDates = goalLogs ? new Set(goalLogs.map(l => l.date)) : null
@@ -251,13 +252,32 @@ export function useAppState() {
     }
 
     if (action === 'deleted') {
-      setGoals(prev => prev.filter(g => g.id !== goal_id))
+      setGoals(prev => {
+        const remaining = prev.filter(g => g.id !== goal_id)
+        if (reordered_goals?.length) {
+          const orderMap = {}
+          for (const { goal_id: gid, new_order: ord } of reordered_goals) orderMap[gid] = ord
+          return remaining.map(g => ({ ...g, order: orderMap[g.id] ?? g.order })).sort((a, b) => a.order - b.order)
+        }
+        return remaining.sort((a, b) => a.order - b.order).map((g, i) => ({ ...g, order: i }))
+      })
       if (week_start === visibleWeekStart) {
-        setWeekState(prev => ({
-          ...prev,
-          goalWeeks: prev.goalWeeks.filter(gw => gw.goal_id !== goal_id),
-          logs: prev.logs.filter(l => l.goal_id !== goal_id),
-        }))
+        setWeekState(prev => {
+          const orderMap = {}
+          if (reordered_goals?.length) {
+            for (const { goal_id: gid, new_order: ord } of reordered_goals) orderMap[gid] = ord
+          }
+          return {
+            ...prev,
+            goalWeeks: prev.goalWeeks
+              .filter(gw => gw.goal_id !== goal_id)
+              .map(gw => orderMap[gw.goal_id] !== undefined
+                ? { ...gw, snapshot: { ...gw.snapshot, order: orderMap[gw.goal_id] } }
+                : gw
+              ),
+            logs: prev.logs.filter(l => l.goal_id !== goal_id),
+          }
+        })
       }
     }
 
