@@ -111,17 +111,21 @@ export function useAppState() {
   const [settings, setSettings] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const [weekGoalWeeks, setWeekGoalWeeks] = useState([])
-  const [weekLogs, setWeekLogs] = useState([])
-  const [visibleWeekStart, setVisibleWeekStart] = useState(null)
+  // Single state object for week data — prevents double render on week switch
+  const [weekState, setWeekState] = useState({ goalWeeks: [], logs: [], weekStart: null })
+  const weekGoalWeeks = weekState.goalWeeks
+  const weekLogs = weekState.logs
+  const visibleWeekStart = weekState.weekStart
 
   const load = useCallback(async () => {
     try {
       const data = await getInit()
       setGoals(data.goals)
-      setWeekGoalWeeks(data.goal_weeks)
-      setWeekLogs(data.logs)
-      setVisibleWeekStart(data.goal_weeks[0]?.week_start ?? null)
+      setWeekState({
+        goalWeeks: data.goal_weeks,
+        logs: data.logs,
+        weekStart: data.goal_weeks[0]?.week_start ?? null,
+      })
       setSettings(data.settings)
     } catch (e) {
       // error toasted by api layer
@@ -133,9 +137,11 @@ export function useAppState() {
   const loadWeek = useCallback(async (weekStart) => {
     try {
       const data = await getWeekData(weekStart)
-      setWeekGoalWeeks(data.goal_weeks)
-      setWeekLogs(data.logs)
-      setVisibleWeekStart(weekStart)
+      setWeekState({
+        goalWeeks: data.goal_weeks,
+        logs: data.logs,
+        weekStart,
+      })
     } catch (e) {
       // error toasted by api layer
     }
@@ -154,10 +160,10 @@ export function useAppState() {
   }
 
   const applyLogChanged = ({ goal_id, logs: updatedLogs }) => {
-    setWeekLogs(prev => {
+    setWeekState(prev => {
       const updatedDates = new Set(updatedLogs.map(l => l.date))
-      const kept = prev.filter(l => !(l.goal_id === goal_id && updatedDates.has(l.date)))
-      return [...kept, ...updatedLogs]
+      const kept = prev.logs.filter(l => !(l.goal_id === goal_id && updatedDates.has(l.date)))
+      return { ...prev, logs: [...kept, ...updatedLogs] }
     })
   }
 
@@ -200,10 +206,13 @@ export function useAppState() {
       })
       return updated.sort((a, b) => a.order - b.order)
     })
-    setWeekGoalWeeks(prev => prev.map(gw => {
-      const newOrder = orderedIds.indexOf(gw.goal_id)
-      if (newOrder === -1) return gw
-      return { ...gw, snapshot: { ...gw.snapshot, order: newOrder } }
+    setWeekState(prev => ({
+      ...prev,
+      goalWeeks: prev.goalWeeks.map(gw => {
+        const newOrder = orderedIds.indexOf(gw.goal_id)
+        if (newOrder === -1) return gw
+        return { ...gw, snapshot: { ...gw.snapshot, order: newOrder } }
+      })
     }))
     const items = orderedIds.map((goal_id, index) => ({ goal_id, new_order: index }))
     await reorderGoals(items)
@@ -215,34 +224,40 @@ export function useAppState() {
     if (action === 'created') {
       setGoals(prev => [...prev, goal])
       if (week_start === visibleWeekStart) {
-        if (goal_week) setWeekGoalWeeks(prev => [...prev, goal_week])
-        if (goalLogs?.length) setWeekLogs(prev => [...prev, ...goalLogs])
+        setWeekState(prev => ({
+          ...prev,
+          goalWeeks: goal_week ? [...prev.goalWeeks, goal_week] : prev.goalWeeks,
+          logs: goalLogs?.length ? [...prev.logs, ...goalLogs] : prev.logs,
+        }))
       }
     }
 
     if (action === 'updated') {
       setGoals(prev => prev.map(g => g.id === goal.id ? goal : g))
       if (week_start === visibleWeekStart) {
-        if (goal_week) {
-          setWeekGoalWeeks(prev => prev.map(gw =>
-            gw.goal_id === goal_week.goal_id ? goal_week : gw
-          ))
-        }
-        if (goalLogs) {
-          const updatedDates = new Set(goalLogs.map(l => l.date))
-          setWeekLogs(prev => [
-            ...prev.filter(l => !(l.goal_id === goal.id && updatedDates.has(l.date))),
-            ...goalLogs,
-          ])
-        }
+        setWeekState(prev => {
+          const updatedDates = goalLogs ? new Set(goalLogs.map(l => l.date)) : null
+          return {
+            ...prev,
+            goalWeeks: goal_week
+              ? prev.goalWeeks.map(gw => gw.goal_id === goal_week.goal_id ? goal_week : gw)
+              : prev.goalWeeks,
+            logs: goalLogs
+              ? [...prev.logs.filter(l => !(l.goal_id === goal.id && updatedDates.has(l.date))), ...goalLogs]
+              : prev.logs,
+          }
+        })
       }
     }
 
     if (action === 'deleted') {
       setGoals(prev => prev.filter(g => g.id !== goal_id))
       if (week_start === visibleWeekStart) {
-        setWeekGoalWeeks(prev => prev.filter(gw => gw.goal_id !== goal_id))
-        setWeekLogs(prev => prev.filter(l => l.goal_id !== goal_id))
+        setWeekState(prev => ({
+          ...prev,
+          goalWeeks: prev.goalWeeks.filter(gw => gw.goal_id !== goal_id),
+          logs: prev.logs.filter(l => l.goal_id !== goal_id),
+        }))
       }
     }
 
@@ -252,20 +267,23 @@ export function useAppState() {
             .sort((a, b) => a.order - b.order)
       )
       if (week_start === visibleWeekStart) {
-        setWeekGoalWeeks(prev => prev.map(gw =>
-          gw.goal_id === goal_id
-            ? { ...gw, snapshot: { ...gw.snapshot, order: new_order } }
-            : gw
-        ))
+        setWeekState(prev => ({
+          ...prev,
+          goalWeeks: prev.goalWeeks.map(gw =>
+            gw.goal_id === goal_id
+              ? { ...gw, snapshot: { ...gw.snapshot, order: new_order } }
+              : gw
+          ),
+        }))
       }
     }
   }
 
   const applyDayChanged = (date, newLogs) => {
-    setWeekLogs(prev => [
-      ...prev.filter(l => l.date !== date),
-      ...newLogs,
-    ])
+    setWeekState(prev => ({
+      ...prev,
+      logs: [...prev.logs.filter(l => l.date !== date), ...newLogs],
+    }))
   }
 
   // ── SSE handlers ─────────────────────────────────────────────────────────
@@ -284,11 +302,14 @@ export function useAppState() {
       if (data[0]?.week_start === visibleWeekStart) {
         const orderMap = {}
         for (const { goal_id, new_order } of data) orderMap[goal_id] = new_order
-        setWeekGoalWeeks(prev => prev.map(gw =>
-          orderMap[gw.goal_id] !== undefined
-            ? { ...gw, snapshot: { ...gw.snapshot, order: orderMap[gw.goal_id] } }
-            : gw
-        ))
+        setWeekState(prev => ({
+          ...prev,
+          goalWeeks: prev.goalWeeks.map(gw =>
+            orderMap[gw.goal_id] !== undefined
+              ? { ...gw, snapshot: { ...gw.snapshot, order: orderMap[gw.goal_id] } }
+              : gw
+          ),
+        }))
       }
     } else {
       applyGoalChanged(data)
