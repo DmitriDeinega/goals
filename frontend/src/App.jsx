@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
 import { useAppState, computeWeekSummary } from './hooks/useAppState'
 import { useEvents } from './hooks/useEvents'
@@ -45,22 +45,18 @@ export default function App() {
   const firstDay = settings?.first_day_of_week || 'sunday'
   const weekStart = getWeekStart(selectedDate, firstDay)
   const weekEnd = dayjs(weekStart).add(6, 'day').format('YYYY-MM-DD')
-
-  // Track if we're waiting for week data to load
-  const weekLoadingRef = useRef(false)
+  const weekReady = visibleWeekStart === weekStart
 
   useEffect(() => {
     if (loading) return
-    if (weekStart === visibleWeekStart) return
-    weekLoadingRef.current = true
-    loadWeek(weekStart).then(() => {
-      weekLoadingRef.current = false
-    })
-  }, [weekStart, visibleWeekStart, loading])
+    if (weekReady) return
+    loadWeek(weekStart)
+  }, [weekStart, weekReady, loading])
 
-  // Only compute summary when data matches the visible week to avoid flash
-  const summaryWeekStart = visibleWeekStart || weekStart
-  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, summaryWeekStart, weekEnd, today)
+  // Only compute summary when week data is ready — prevents flash of wrong %
+  const weekSummary = weekReady
+    ? computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
+    : null
 
   const onDayChanged = ({ date, logs: newLogs }) => {
     setToday(date)
@@ -151,7 +147,7 @@ export default function App() {
             getLog={getLog}
             onToggle={toggle}
             weekSummary={weekSummary}
-            weekStart={visibleWeekStart || weekStart}
+            weekStart={weekReady ? weekStart : (visibleWeekStart || weekStart)}
             settings={settings}
             currency={currency}
           />
