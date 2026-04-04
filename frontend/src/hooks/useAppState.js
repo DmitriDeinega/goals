@@ -83,7 +83,7 @@ export function computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, t
 
   for (const goal of activeGoals) {
     const { completions, total_slots, earned_reward } = computeGoalStats(goal, logs, weekDays)
-    totalPct += completions / Math.max(total_slots, 1)
+    totalPct += Math.min(completions, total_slots) / Math.max(total_slots, 1)
     totalEarned += earned_reward
   }
 
