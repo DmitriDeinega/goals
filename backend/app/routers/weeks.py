@@ -21,7 +21,7 @@ async def ensure_week():
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
 
-        goals = await db.goals.find({"active": True}).to_list(None)
+        goals = await db.goals.find({}).to_list(None)
         existing = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
         existing_ids = {e["goal_id"] for e in existing}
 

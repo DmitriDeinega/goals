@@ -42,7 +42,7 @@ async def watch_day():
 
             week_start = get_week_start(today, first_day)
 
-            all_goals = await db.goals.find({"active": True}).to_list(None)
+            all_goals = await db.goals.find({}).to_list(None)
             existing_gw = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
             existing_ids = {e["goal_id"] for e in existing_gw}
 
