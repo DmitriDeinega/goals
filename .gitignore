@@ -9,7 +9,16 @@ venv/
 # Frontend
 frontend/node_modules/
 frontend/dist/
-# (dist is built inside Docker, no need to commit it)
+frontend/package-lock.json
+
+# Android
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+*.keystore
+*.jks
 
 # Docker
 *.log
@@ -22,3 +31,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Claude
+.claude

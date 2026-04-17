@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, field_validator
 from typing import Optional, List
 from enum import Enum
 
@@ -12,6 +12,24 @@ class RewardRule(BaseModel):
     min_completions: int
     reward_amount: float
 
+    @model_validator(mode='after')
+    def check_values(self):
+        if self.min_completions < 1:
+            raise ValueError('min_completions must be at least 1')
+        if self.reward_amount <= 0:
+            raise ValueError('reward_amount must be greater than 0')
+        return self
+
+
+def _validate_reward_rules(rules: List[RewardRule], max_completions: int):
+    seen = set()
+    for i, rule in enumerate(rules):
+        if rule.min_completions > max_completions:
+            raise ValueError(f'Rule {i+1}: completions cannot exceed {max_completions}')
+        if rule.min_completions in seen:
+            raise ValueError(f'Rule {i+1}: duplicate completions value {rule.min_completions}')
+        seen.add(rule.min_completions)
+
 
 class GoalCreate(BaseModel):
     name: str
@@ -23,11 +41,19 @@ class GoalCreate(BaseModel):
     order: int = 0
 
     @model_validator(mode='after')
-    def check_type_fields(self):
-        if self.type == GoalType.weekly_x and (self.times_per_week is None or self.times_per_week < 1):
-            raise ValueError('times_per_week is required and must be at least 1 for weekly goals')
-        if self.type == GoalType.daily and (self.times_per_day is None or self.times_per_day < 1):
-            raise ValueError('times_per_day is required and must be at least 1 for daily goals')
+    def check_fields(self):
+        if not self.name.strip():
+            raise ValueError('name is required')
+        if self.type == GoalType.weekly_x:
+            if self.times_per_week is None or self.times_per_week < 1:
+                raise ValueError('times_per_week is required and must be at least 1 for weekly goals')
+            if self.times_per_week > 7:
+                raise ValueError('times_per_week cannot exceed 7')
+            _validate_reward_rules(self.reward_rules, self.times_per_week)
+        if self.type == GoalType.daily:
+            if self.times_per_day is None or self.times_per_day < 1:
+                raise ValueError('times_per_day is required and must be at least 1 for daily goals')
+            _validate_reward_rules(self.reward_rules, 7)
         return self
 
 
@@ -40,6 +66,26 @@ class GoalUpdate(BaseModel):
     reward_rules: Optional[List[RewardRule]] = None
     order: Optional[int] = None
     version: Optional[int] = None
+
+    @model_validator(mode='after')
+    def check_fields(self):
+        if self.name is not None and not self.name.strip():
+            raise ValueError('name cannot be empty')
+        if self.type == GoalType.weekly_x:
+            if self.times_per_week is not None and (self.times_per_week < 1 or self.times_per_week > 7):
+                raise ValueError('times_per_week must be between 1 and 7')
+            if self.reward_rules is not None:
+                max_c = self.times_per_week or 7
+                _validate_reward_rules(self.reward_rules, max_c)
+        if self.type == GoalType.daily:
+            if self.times_per_day is not None and self.times_per_day < 1:
+                raise ValueError('times_per_day must be at least 1')
+            if self.reward_rules is not None:
+                _validate_reward_rules(self.reward_rules, 7)
+        elif self.reward_rules is not None and self.type is None:
+            # type unchanged — skip max check (only client knows current times_per_*), but still check duplicates
+            _validate_reward_rules(self.reward_rules, max_completions=999)
+        return self
 
 
 class GoalOut(BaseModel):

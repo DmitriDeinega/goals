@@ -9,27 +9,32 @@ goals/
 │   │   ├── main.py          # FastAPI app, serves frontend + API, logging setup
 │   │   ├── database.py      # MongoDB async connection
 │   │   ├── models.py        # Pydantic models
+│   │   ├── sequence.py      # Global sequence counter for sync
+│   │   ├── broadcaster.py   # SSE fan-out to connected clients
+│   │   ├── day_watcher.py   # Background task: detects midnight, enrolls new week
 │   │   ├── time_utils.py    # Timezone-aware date helpers
 │   │   └── routers/
 │   │       ├── goals.py     # CRUD for goals
-│   │       ├── logs.py      # Daily logs + week summary
+│   │       ├── logs.py      # Daily log upsert
 │   │       ├── settings.py  # App settings
 │   │       └── weeks.py     # goal_weeks enrollment + enable/disable
 │   ├── pyproject.toml
 │   ├── .env                 # local only, never committed
+│   ├── .env.example
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
 │   │   ├── api/             # API client with toast error handling
-│   │   ├── hooks/           # useGoals, useLogs, useSettings
-│   │   ├── components/      # WeekStrip, GoalRow, GoalForm, Toast, etc.
-│   │   ├── pages/           # TodayPage, GoalsPage
+│   │   ├── hooks/           # useAppState — goals, logs, SSE, week summary
+│   │   ├── components/      # WeekStrip, GoalRow, GoalForm, DatePicker, Toast
 │   │   └── App.jsx
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
-├── docker-compose.yml
-├── init_settings.js         # one-time DB seed script
+├── android/                 # Native Android app (see android/README.md)
+├── docker/
+│   └── docker-compose.yml
+├── init_settings.js         # One-time DB seed script
 └── README.md
 ```
 
@@ -46,13 +51,13 @@ LOG_LEVEL=INFO    # DEBUG | INFO | WARNING | ERROR
 git clone https://github.com/YOURUSERNAME/goals.git
 cd goals
 cp backend/.env.example backend/.env  # then edit it
-docker compose up --build -d
+docker compose -f docker/docker-compose.yml up --build -d
 
 # Seed initial settings (run once)
 docker exec -i goals-mongo mongosh goals_db < init_settings.js
 
 # Every deploy after that
-git pull && docker compose up --build -d
+git pull && docker compose -f docker/docker-compose.yml up --build -d
 ```
 
 App runs at: `http://your-server:2200`
@@ -67,44 +72,54 @@ docker compose down                   # stop everything
 
 ## API Endpoints
 ```
-GET    /api/goals/                          list all active goals with enabled status
+GET    /api/init                            full state load (goals, weeks, logs, settings, seq)
+
+GET    /api/goals/                          list all goals with current week enabled status
 POST   /api/goals/                          create goal
 PUT    /api/goals/{id}                      update goal
-DELETE /api/goals/{id}                      soft delete goal
+DELETE /api/goals/{id}                      delete goal (hard delete, reorders remaining)
 PUT    /api/goals/reorder/batch             reorder goals
 
-GET    /api/logs/                           logs for a date or week range
-POST   /api/logs/                           upsert log entry
-GET    /api/logs/week-summary               weekly stats & rewards
+POST   /api/logs/                           upsert log entry (toggle a slot)
 
-GET    /api/settings/                       get app settings (includes app_env)
+GET    /api/settings/                       get app settings
 PUT    /api/settings/                       update settings
 
 POST   /api/weeks/ensure                    enroll goals for current week (called on app load)
 PUT    /api/weeks/{goal_id}/enabled         enable/disable goal for current week
+
+GET    /api/sse                             SSE stream for real-time sync
 ```
 
 ## Goal Types
-- **daily** — tracked every day, with optional times_per_day > 1
-- **weekly_x** — target X completions per week, you set the number
+- **daily** — tracked every day, with optional `times_per_day > 1`
+- **weekly_x** — target X completions per week (1–7), you set the number
 
 ## Negative Goals
-Negative goals (e.g. "No junk food") default to ✓ (success). Tap to mark as failed for that day.
+Negative goals (e.g. "No junk food") default to ✓ (avoided). Tap to mark as failed for that day.
 
 ## Rewards
-Add reward rules per goal. Rules accumulate — all matching rules pay out.
+Add reward rules per goal. All matching rules pay out.
 Example: "5/7 days → ₪3, 7/7 days → ₪5" gives ₪8 for a perfect week.
 
 ## Week Enrollment (goal_weeks)
-Goals are enrolled per-week in a `goal_weeks` collection. This means:
-- Goals only appear in weeks where they were active
-- You can disable a goal mid-week without losing past logs
-- Past weeks only show goals that were actually tracked then
+Goals are enrolled per-week in a `goal_weeks` collection with a snapshot of the goal's config at that time. This means:
+- You can disable a goal for the current week without losing past logs
+- Past weeks reflect the goal config that was active then (name, type, reward rules)
 - On each app load, `POST /api/weeks/ensure` enrolls any new goals into the current week
 
+## Real-time Sync
+All clients connect to `/api/sse` and receive events:
+- `goal_changed` — goal created, updated, deleted, reordered, or enabled toggled
+- `log_changed` — a slot was toggled
+- `day_changed` — midnight rollover, new day initialized
+- `ping` — keepalive every 30s
+
+Each event includes a sequence number (`seq`). If a client's local seq is behind, it reloads.
+
 ## Settings
-Configurable via the API (settings UI planned):
+Configurable via the API:
 - `first_day_of_week` — `sunday` or `monday`
 - `start_date` — earliest date you can navigate to
-- `currency` — `NIS` or `USD`
-- `timezone` — IANA timezone string (e.g. `Asia/Jerusalem`) — determines when the server considers a new day to start
+- `currency` — e.g. `NIS` or `USD`
+- `timezone` — IANA timezone string (e.g. `Asia/Jerusalem`)

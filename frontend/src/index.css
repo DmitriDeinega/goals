@@ -254,7 +254,6 @@ body {
   gap: 10px;
   padding: 14px 0;
   border-bottom: 1px solid var(--border);
-  animation: fadeIn 0.2s ease;
 }
 
 .goal-progress {
@@ -341,8 +340,9 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 .progress-header {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   margin-bottom: 8px;
+  height: 20px;
 }
 
 .progress-title {

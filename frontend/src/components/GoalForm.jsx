@@ -68,16 +68,20 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
     if (form.type === 'weekly_x') {
       const v = Number(form.times_per_week)
       if (!v || v < 1) { toast('Times per week must be at least 1'); return false }
+      if (v > 7) { toast('Times per week cannot exceed 7'); return false }
     }
     if (form.type === 'daily') {
       const v = Number(form.times_per_day)
       if (!v || v < 1) { toast('Times per day must be at least 1'); return false }
     }
+    const seenCompletions = new Set()
     for (let i = 0; i < form.reward_rules.length; i++) {
       const rule = form.reward_rules[i]
       const mc = Number(rule.min_completions)
       if (!mc || mc < 1) { toast(`Rule ${i + 1}: completions must be at least 1`); return false }
       if (mc > maxCompletions) { toast(`Rule ${i + 1}: completions can't exceed ${maxCompletions}`); return false }
+      if (seenCompletions.has(mc)) { toast(`Rule ${i + 1}: duplicate completions value ${mc}`); return false }
+      seenCompletions.add(mc)
       const ra = parseFloat(rule.reward_amount)
       if (isNaN(ra) || ra <= 0) { toast(`Rule ${i + 1}: reward must be greater than 0`); return false }
     }
@@ -132,7 +136,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
         <div className="field">
           <label>Name</label>
           <input
-            type="search" autoComplete="off"
+            type="text" autoComplete="off"
             value={form.name}
             onChange={e => set('name', e.target.value)}
             placeholder="e.g. Morning run"
@@ -161,7 +165,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
           <div className="field">
             <label>Times per day</label>
             <input
-              type="search" inputMode="numeric" autoComplete="off"
+              type="text" inputMode="numeric" autoComplete="off"
               value={form.times_per_day}
               onKeyDown={intKeyDown}
               onChange={e => { const raw = e.target.value.replace(/\D/g, ''); set('times_per_day', raw === '' ? '' : parseInt(raw, 10)) }}
@@ -173,7 +177,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
           <div className="field">
             <label>Times per week</label>
             <input
-              type="search" inputMode="numeric" autoComplete="off"
+              type="text" inputMode="numeric" autoComplete="off"
               value={form.times_per_week}
               onKeyDown={intKeyDown}
               onChange={e => { const raw = e.target.value.replace(/\D/g, ''); set('times_per_week', raw === '' ? '' : parseInt(raw, 10)) }}
@@ -197,7 +201,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
             {form.reward_rules.map((rule, i) => (
               <div key={i} className="reward-rule-row">
                 <input
-                  type="search" inputMode="numeric" autoComplete="off"
+                  type="text" inputMode="numeric" autoComplete="off"
                   value={rule.min_completions}
                   onKeyDown={intKeyDown}
                   onChange={e => updateRule(i, 'min_completions', e.target.value)}
@@ -205,7 +209,7 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
                 />
                 <span className="rule-label">/ {maxCompletions} →</span>
                 <input
-                  type="search" inputMode="decimal" autoComplete="off"
+                  type="text" inputMode="decimal" autoComplete="off"
                   value={rule.reward_amount}
                   onKeyDown={floatKeyDown}
                   onChange={e => updateRuleFloat(i, e.target.value)}

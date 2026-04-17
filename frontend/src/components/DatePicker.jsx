@@ -20,7 +20,8 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const prevMonth = () => setView(v => v.subtract(1, 'month'))
+  const canGoPrevMonth = !min || !view || view.isAfter(dayjs(min).startOf('month'))
+  const prevMonth = () => { if (canGoPrevMonth) setView(v => v.subtract(1, 'month')) }
   const nextMonth = () => setView(v => v.add(1, 'month'))
 
   const select = (dateStr) => {
@@ -84,7 +85,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
       {open && view && (
         <div className="dp-popup">
           <div className="dp-header">
-            <button className="dp-nav" onClick={prevMonth}>‹</button>
+            <button className="dp-nav" onClick={prevMonth} disabled={!canGoPrevMonth} style={!canGoPrevMonth ? {opacity: 0.3, cursor: 'not-allowed'} : {}}>‹</button>
             <span className="dp-month">{view.format('MMM YYYY')}</span>
             <button className="dp-nav" onClick={nextMonth}>›</button>
           </div>
