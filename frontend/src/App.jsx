@@ -23,11 +23,11 @@ export default function App() {
   const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [sseEnabled, setSseEnabled] = useState(false)
-  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))
+  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))  // overwritten by server value on init
 
   const {
     goals, goalWeeks, logs, settings, loading, load, loadWeek, visibleWeekStart,
-    toggle, addGoal, editGoal, removeGoal, setEnabled, reorder,
+    toggle, togglingSlots, addGoal, editGoal, removeGoal, setEnabled, reorder,
     getLog, handleLogChanged, handleGoalChanged, applyDayChanged,
   } = useAppState()
 
@@ -146,6 +146,7 @@ export default function App() {
             setSelectedDate={setSelectedDate}
             getLog={getLog}
             onToggle={toggle}
+            togglingSlots={togglingSlots}
             weekSummary={weekSummary}
             weekStart={weekReady ? weekStart : (visibleWeekStart || weekStart)}
             settings={settings}

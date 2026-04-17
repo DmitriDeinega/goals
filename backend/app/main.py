@@ -78,6 +78,11 @@ app.include_router(weeks.router, prefix="/api/weeks", tags=["weeks"])
 app.include_router(events.router, prefix="/api/events", tags=["events"])
 
 
+@app.get("/api/health", tags=["health"])
+async def health():
+    return {"status": "ok"}
+
+
 def log_from_doc(doc) -> LogOut:
     return LogOut(
         goal_id=doc["goal_id"],

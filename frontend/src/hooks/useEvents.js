@@ -57,10 +57,11 @@ export function useEvents({ enabled, onLogChanged, onGoalChanged, onDayChanged, 
 
       es.onerror = () => {
         es.close()
+        const jitter = Math.random() * retryDelay * 0.3
         retryTimeout = setTimeout(() => {
           retryDelay = Math.min(retryDelay * 2, 30000)
           connect()
-        }, retryDelay)
+        }, retryDelay + jitter)
       }
     }
 

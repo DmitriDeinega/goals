@@ -2,6 +2,17 @@ from pydantic import BaseModel, model_validator, field_validator
 from typing import Optional, List
 from enum import Enum
 
+# ── CANONICAL VALIDATION RULES ────────────────────────────────────────────────
+# This is the single source of truth. Keep frontend/GoalForm.jsx and
+# android/.../GoalFormSheet.kt in sync when changing anything here.
+#
+#   times_per_week   : 1–7 (weekly_x goals only)
+#   times_per_day    : >= 1 (daily goals only)
+#   reward_rules     : min_completions >= 1, no duplicates,
+#                      max = times_per_week (weekly) or 7 (daily)
+#   reward_amount    : > 0
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class GoalType(str, Enum):
     daily = "daily"

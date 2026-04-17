@@ -241,7 +241,13 @@ class AppViewModel @Inject constructor(
                             }
                         ))
                     }
-                    showToast("Failed to update: ${result.message}")
+                    val msg = when (result.code) {
+                        409 -> "Out of sync. Reloading..."
+                        0 -> "No connection. Check your network."
+                        else -> "Failed to update (${result.code})"
+                    }
+                    if (result.code == 409) loadData()
+                    showToast(msg)
                 }
             }
         }
@@ -432,7 +438,8 @@ class AppViewModel @Inject constructor(
                 } catch (e: Exception) {
                     Log.w("SSE", "Disconnected: ${e.message}, retrying in ${sseRetryDelay}ms")
                 }
-                delay(sseRetryDelay)
+                val jitter = (Math.random() * sseRetryDelay * 0.3).toLong()
+                delay(sseRetryDelay + jitter)
                 sseRetryDelay = minOf(sseRetryDelay * 2, 30_000L)
                 Log.i("SSE", "Reconnecting...")
             }

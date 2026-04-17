@@ -149,14 +149,42 @@ export function useAppState() {
 
   // ── Log actions ──────────────────────────────────────────────────────────
 
+  const [togglingSlots, setTogglingSlots] = useState(new Set())
+
   const toggle = async (goalId, date, slotIndex, currentValue) => {
-    const payload = await upsertLog({
-      goal_id: goalId,
-      date,
-      slot_index: slotIndex,
-      value: !currentValue,
-    })
-    applyLogChanged(payload)
+    const key = `${goalId}:${date}:${slotIndex}`
+    if (togglingSlots.has(key)) return
+    setTogglingSlots(prev => new Set([...prev, key]))
+
+    // Optimistic update
+    const newValue = !currentValue
+    setWeekState(prev => ({
+      ...prev,
+      logs: prev.logs.map(l => {
+        if (l.goal_id !== goalId || l.date !== date) return l
+        const slots = [...l.slots]
+        slots[slotIndex] = newValue
+        return { ...l, slots }
+      }),
+    }))
+
+    try {
+      const payload = await upsertLog({ goal_id: goalId, date, slot_index: slotIndex, value: newValue })
+      applyLogChanged(payload)
+    } catch {
+      // Revert optimistic update on failure
+      setWeekState(prev => ({
+        ...prev,
+        logs: prev.logs.map(l => {
+          if (l.goal_id !== goalId || l.date !== date) return l
+          const slots = [...l.slots]
+          slots[slotIndex] = currentValue
+          return { ...l, slots }
+        }),
+      }))
+    } finally {
+      setTogglingSlots(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
   }
 
   const applyLogChanged = ({ goal_id, logs: updatedLogs }) => {
@@ -351,6 +379,7 @@ export function useAppState() {
     loadWeek,
     visibleWeekStart,
     toggle,
+    togglingSlots,
     addGoal,
     editGoal,
     removeGoal,

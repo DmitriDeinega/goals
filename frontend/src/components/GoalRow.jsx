@@ -7,7 +7,7 @@ function fmt(currency, amount) {
   return `${amount} ${currency}`
 }
 
-export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, getLog, onToggle, currency }) {
+export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, getLog, onToggle, togglingSlots, currency }) {
   const isNeg = goal.is_negative
   const tpd = goal.times_per_day || 1
 
@@ -38,21 +38,26 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
 
       {slots.length > 1 ? (
         <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-          {slots.map((value, i) => (
-            <button
-              key={i}
-              className={`toggle-btn ${getStatusClass(value, isNeg)}`}
-              onClick={() => onToggle(goal.id, date, i, value)}
-              title={`${i + 1} of ${tpd}`}
-            >
-              {getIcon(value, isNeg)}
-            </button>
-          ))}
+          {slots.map((value, i) => {
+            const toggling = togglingSlots?.has(`${goal.id}:${date}:${i}`)
+            return (
+              <button
+                key={i}
+                className={`toggle-btn ${getStatusClass(value, isNeg)}`}
+                onClick={() => onToggle(goal.id, date, i, value)}
+                disabled={toggling}
+                title={`${i + 1} of ${tpd}`}
+              >
+                {getIcon(value, isNeg)}
+              </button>
+            )
+          })}
         </div>
       ) : (
         <button
           className={`toggle-btn ${getStatusClass(slots[0], isNeg)}`}
           onClick={() => onToggle(goal.id, date, 0, slots[0])}
+          disabled={togglingSlots?.has(`${goal.id}:${date}:0`)}
         >
           {getIcon(slots[0], isNeg)}
         </button>

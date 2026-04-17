@@ -135,9 +135,21 @@ async def upsert_log(log: LogCreate, request: Request):
         # Validate client sequence
         client_seq = request.headers.get("X-Sequence")
         if client_seq is not None:
+            try:
+                parsed_seq = int(client_seq)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid X-Sequence header")
             current_seq = await get_sequence()
-            if int(client_seq) != current_seq:
+            if parsed_seq != current_seq:
                 raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+
+        # Validate slot_index bounds
+        goal_doc_for_bounds = await db.goals.find_one({"_id": ObjectId(log.goal_id)})
+        if not goal_doc_for_bounds:
+            raise HTTPException(status_code=404, detail="Goal not found")
+        max_slots = goal_doc_for_bounds.get("times_per_day") or 1
+        if log.slot_index < 0 or log.slot_index >= max_slots:
+            raise HTTPException(status_code=400, detail=f"slot_index must be between 0 and {max_slots - 1}")
 
         # Atomically update the specific slot
         result = await db.logs.update_one(
@@ -147,12 +159,9 @@ async def upsert_log(log: LogCreate, request: Request):
         )
 
         if result.matched_count == 0:
-            # Document doesn't exist — create with default slots
-            goal_doc = await db.goals.find_one({"_id": ObjectId(log.goal_id)})
-            if not goal_doc:
-                raise HTTPException(status_code=404, detail="Goal not found")
-            tpd = goal_doc.get("times_per_day") or 1
-            is_neg = goal_doc.get("is_negative", False)
+            # Document doesn't exist — create with default slots (goal already fetched above)
+            tpd = goal_doc_for_bounds.get("times_per_day") or 1
+            is_neg = goal_doc_for_bounds.get("is_negative", False)
             default_slots = [is_neg] * tpd
             default_slots[log.slot_index] = log.value
             await db.logs.insert_one({

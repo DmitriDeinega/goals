@@ -47,8 +47,12 @@ def goal_week_from_doc(doc) -> GoalWeekOut:
 async def validate_client_seq(request: Request):
     client_seq = request.headers.get("X-Sequence")
     if client_seq is not None:
+        try:
+            parsed = int(client_seq)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid X-Sequence header")
         current_seq = await get_sequence()
-        if int(client_seq) != current_seq:
+        if parsed != current_seq:
             raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
 
 
@@ -78,9 +82,10 @@ async def create_goal(goal: GoalCreate, request: Request):
         week_start = get_week_start(today, first_day)
         week_end = get_week_end(week_start)
 
-        existing = await db.goals.find_one({
-            "name": {"$regex": f"^{goal.name.strip()}$", "$options": "i"},
-        })
+        existing = await db.goals.find_one(
+            {"name": goal.name.strip()},
+            collation={"locale": "en", "strength": 2},
+        )
         if existing:
             raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
@@ -145,18 +150,18 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
             raise HTTPException(status_code=404, detail="Goal not found")
 
         client_version = goal.version
-        if client_version is not None:
-            db_version = current.get("version", 0)
-            if db_version != client_version:
-                logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
-                raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+        db_version = current.get("version", 0)
+        effective_client_version = client_version if client_version is not None else db_version
+        if db_version != effective_client_version:
+            logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
+            raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
 
         name_val = goal.model_dump().get("name")
         if name_val:
-            existing = await db.goals.find_one({
-                "name": {"$regex": f"^{name_val.strip()}$", "$options": "i"},
-                "_id": {"$ne": ObjectId(goal_id)}
-            })
+            existing = await db.goals.find_one(
+                {"name": name_val.strip(), "_id": {"$ne": ObjectId(goal_id)}},
+                collation={"locale": "en", "strength": 2},
+            )
             if existing:
                 raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
@@ -180,7 +185,7 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
         elif new_type == "weekly_x":
             update_data["times_per_day"] = None
 
-        update_data["version"] = (client_version if client_version is not None else 0) + 1
+        update_data["version"] = effective_client_version + 1
 
         # Separate None values for $unset
         unset_data = {k: "" for k, v in update_data.items() if v is None}
@@ -290,17 +295,18 @@ async def delete_goal(goal_id: str, request: Request):
         # Delete current week logs only — past weeks keep their logs
         await db.logs.delete_many({"goal_id": goal_id, "date": {"$gte": week_start, "$lte": week_end}})
 
-        # Reorder remaining goals to fill the gap
+        # Reorder remaining goals to fill the gap — only write if order changed
         remaining = await db.goals.find({}).sort("order", 1).to_list(None)
         reordered_goals = []
         for i, g in enumerate(remaining):
+            gid = str(g["_id"])
             if g.get("order") != i:
                 await db.goals.update_one({"_id": g["_id"]}, {"$set": {"order": i}})
                 await db.goal_weeks.update_one(
-                    {"goal_id": str(g["_id"]), "week_start": week_start},
+                    {"goal_id": gid, "week_start": week_start},
                     {"$set": {"snapshot.order": i}},
                 )
-            reordered_goals.append({"goal_id": str(g["_id"]), "new_order": i})
+            reordered_goals.append({"goal_id": gid, "new_order": i})
 
         seq = await increment_sequence()
         payload = GoalChangedPayload(

@@ -1,12 +1,14 @@
+const CURRENCY_SYMBOLS = { NIS: '₪', USD: '$', EUR: '€', GBP: '£' }
+
 export default function WeekSummary({ weekSummary, currency }) {
   if (!weekSummary) return null
 
   const { pct = 0, totalEarned = 0 } = weekSummary
 
   const fmtCurrency = (amount) => {
-    if (currency === 'NIS') return `₪${amount}`
-    if (currency === 'USD') return `$${amount}`
-    return `${amount} ${currency}`
+    const symbol = CURRENCY_SYMBOLS[currency]
+    if (symbol) return `${symbol}${amount}`
+    return `${amount} ${currency || ''}`
   }
 
   return (

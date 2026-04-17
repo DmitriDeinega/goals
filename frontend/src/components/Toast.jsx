@@ -20,9 +20,9 @@ export default function ToastContainer() {
   if (!toasts.length) return null
 
   return (
-    <div className="toast-container">
+    <div className="toast-container" role="region" aria-label="Notifications" aria-live="assertive" aria-atomic="true">
       {toasts.map(t => (
-        <div key={t.id} className={`toast toast-${t.type}`}>
+        <div key={t.id} className={`toast toast-${t.type}`} role="alert">
           {t.message}
           <button className="toast-close" onClick={() => setToasts(ts => ts.filter(x => x.id !== t.id))}>✕</button>
         </div>

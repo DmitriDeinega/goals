@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 export default function TodayPage({
   goals, goalWeeks, logs,
   selectedDate, setSelectedDate,
-  getLog, onToggle,
+  getLog, onToggle, togglingSlots,
   weekSummary, weekStart,
   settings, currency
 }) {
@@ -60,6 +60,7 @@ export default function TodayPage({
             today={today}
             getLog={getLog}
             onToggle={onToggle}
+            togglingSlots={togglingSlots}
             currency={currency}
           />
         ))
