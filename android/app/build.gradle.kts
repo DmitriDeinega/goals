@@ -29,7 +29,7 @@ android {
         }
         create("prod") {
             dimension = "env"
-            buildConfigField("String", "SERVER_URL", "\"http://51.84.253.76:2100/\"")
+            buildConfigField("String", "SERVER_URL", "\"http://51.84.253.76:2200/\"")
         }
     }
 
