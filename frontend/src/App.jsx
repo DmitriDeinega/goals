@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import dayjs from 'dayjs'
 import { useAppState, computeWeekSummary } from './hooks/useAppState'
 import { useEvents } from './hooks/useEvents'
@@ -53,13 +53,8 @@ export default function App() {
     loadWeek(weekStart)
   }, [weekStart, weekReady, loading])
 
-  // Keep last valid summary visible while loading next week — prevents jump/flash
-  const lastSummaryRef = useRef(null)
-  const currentSummary = weekReady
-    ? computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
-    : null
-  if (currentSummary !== null) lastSummaryRef.current = currentSummary
-  const weekSummary = currentSummary ?? lastSummaryRef.current
+  // Always compute from current data — old week data stays in state until new week loads
+  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
 
   const onDayChanged = ({ date, logs: newLogs }) => {
     setToday(date)
