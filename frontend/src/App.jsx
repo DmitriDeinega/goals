@@ -53,8 +53,10 @@ export default function App() {
     loadWeek(weekStart)
   }, [weekStart, weekReady, loading])
 
-  // Always compute from current data — old week data stays in state until new week loads
-  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, weekStart, weekEnd, today)
+  // Compute against the week that's actually loaded — prevents double-update flash
+  const summaryWeekStart = weekReady ? weekStart : (visibleWeekStart ?? weekStart)
+  const summaryWeekEnd = dayjs(summaryWeekStart).add(6, 'day').format('YYYY-MM-DD')
+  const weekSummary = computeWeekSummary(goals, goalWeeks, logs, summaryWeekStart, summaryWeekEnd, today)
 
   const onDayChanged = ({ date, logs: newLogs }) => {
     setToday(date)
