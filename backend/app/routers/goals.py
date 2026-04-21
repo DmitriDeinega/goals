@@ -89,7 +89,11 @@ async def create_goal(goal: GoalCreate, request: Request):
         if existing:
             raise HTTPException(status_code=422, detail="A goal with this name already exists")
 
+        last = await db.goals.find_one({}, sort=[("order", -1)])
+        next_order = (last.get("order", -1) + 1) if last else 0
+
         doc = goal.model_dump()
+        doc["order"] = next_order
         doc["version"] = 1
         result = await db.goals.insert_one(doc)
         gid = str(result.inserted_id)
