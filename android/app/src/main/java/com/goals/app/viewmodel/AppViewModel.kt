@@ -164,13 +164,14 @@ class AppViewModel @Inject constructor(
 
     // ── Load ─────────────────────────────────────────────────────────────────
 
-    fun loadData() {
+    fun loadData(preserveWeekStart: String? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true) }
             repository.ensureWeek()
             when (val result = repository.init()) {
                 is ApiResult.Success -> {
                     val data = result.data
+                    val currentWeekStart = data.goalWeeks.firstOrNull()?.weekStart
                     lastSeq = data.seq
                     _uiState.update { it.copy(
                         goals = data.goals.sortedBy { g -> g.order },
@@ -179,10 +180,13 @@ class AppViewModel @Inject constructor(
                         week = WeekState(
                             goalWeeks = data.goalWeeks,
                             logs = data.logs,
-                            weekStart = data.goalWeeks.firstOrNull()?.weekStart
+                            weekStart = currentWeekStart
                         )
                     )}
                     startSse()
+                    if (preserveWeekStart != null && preserveWeekStart != currentWeekStart) {
+                        loadWeek(preserveWeekStart)
+                    }
                 }
                 is ApiResult.Error -> {
                     _uiState.update { it.copy(loading = false, toast = "Connection failed: ${result.message}") }

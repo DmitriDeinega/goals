@@ -3,10 +3,10 @@ import dayjs from 'dayjs'
 
 export default function DatePicker({ value, onChange, placeholder = 'Pick date', min = null, max = null, clearable = true, showToday = false, onTodayReset = null }) {
   const [open, setOpen] = useState(false)
-  const [view, setView] = useState(null) // dayjs of month being shown
   const ref = useRef(null)
 
   const selected = value ? dayjs(value) : null
+  const [view, setView] = useState(() => selected ? selected.startOf('month') : dayjs().startOf('month'))
 
   useEffect(() => {
     setView(selected ? selected.startOf('month') : dayjs().startOf('month'))
@@ -21,8 +21,10 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
   }, [open])
 
   const canGoPrevMonth = !min || !view || view.isAfter(dayjs(min).startOf('month'))
+  const maxMonth = max ? dayjs(max).startOf('month') : dayjs().startOf('month')
+  const canGoNextMonth = view.isBefore(maxMonth)
   const prevMonth = () => { if (canGoPrevMonth) setView(v => v.subtract(1, 'month')) }
-  const nextMonth = () => setView(v => v.add(1, 'month'))
+  const nextMonth = () => { if (canGoNextMonth) setView(v => v.add(1, 'month')) }
 
   const select = (dateStr) => {
     onChange(dateStr)
@@ -87,7 +89,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
           <div className="dp-header">
             <button className="dp-nav" onClick={prevMonth} disabled={!canGoPrevMonth} style={!canGoPrevMonth ? {opacity: 0.3, cursor: 'not-allowed'} : {}}>‹</button>
             <span className="dp-month">{view.format('MMM YYYY')}</span>
-            <button className="dp-nav" onClick={nextMonth}>›</button>
+            <button className="dp-nav" onClick={nextMonth} disabled={!canGoNextMonth} style={!canGoNextMonth ? {opacity: 0.3, cursor: 'not-allowed'} : {}}>›</button>
           </div>
           <div className="dp-grid">
             {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (

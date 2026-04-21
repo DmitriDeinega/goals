@@ -61,9 +61,16 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Kill SSE on pause, full reload on resume
+    val fmt = DateTimeFormatter.ISO_LOCAL_DATE
+    val tabs = listOf("today", "goals")
+    val pagerState = rememberPagerState { tabs.size }
+    val tab = tabs[pagerState.currentPage]
+    var selectedDate by remember { mutableStateOf(LocalDate.now().format(fmt)) }
+
+    // Kill SSE on pause, full reload on resume; reset selected date to today on resume
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            selectedDate = LocalDate.now().format(fmt)
             viewModel.onResume()
             try {
                 awaitCancellation()
@@ -72,12 +79,6 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
             }
         }
     }
-
-    val fmt = DateTimeFormatter.ISO_LOCAL_DATE
-    val tabs = listOf("today", "goals")
-    val pagerState = rememberPagerState { tabs.size }
-    val tab = tabs[pagerState.currentPage]
-    var selectedDate by remember { mutableStateOf(LocalDate.now().format(fmt)) }
 
     LaunchedEffect(Unit) {
         viewModel.loadData()
@@ -181,7 +182,7 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
             @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
-                onRefresh = { isRefreshing = true; viewModel.loadData() },
+                onRefresh = { isRefreshing = true; viewModel.loadData(preserveWeekStart = weekStart) },
                 modifier = Modifier.weight(1f),
             ) {
             HorizontalPager(
