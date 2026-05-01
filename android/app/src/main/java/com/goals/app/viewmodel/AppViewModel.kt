@@ -522,6 +522,8 @@ class AppViewModel @Inject constructor(
     }
 
     fun onResume() {
+        // Refresh today from device clock — SSE day_changed may have fired while paused
+        _uiState.update { it.copy(today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)) }
         loadData()
     }
 
