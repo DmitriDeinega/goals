@@ -159,6 +159,18 @@ object WidgetRenderer {
         val pct = (summary?.pct ?: 0).coerceIn(0, 100)
         val earned = summary?.totalEarned ?: 0.0
 
+        val selectedDate = LocalDate.parse(selected, DateTimeFormatter.ISO_LOCAL_DATE)
+        rv.setTextViewText(
+            R.id.selected_date_label,
+            selectedDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale.ENGLISH))
+        )
+        val isToday = selected == today
+        rv.setInt(
+            R.id.today_button,
+            "setTextColor",
+            if (isToday) COLOR_TEXT_DIM else COLOR_ACCENT
+        )
+
         rv.setTextViewText(R.id.header_label, "THIS WEEK · $pct%")
         rv.setProgressBar(R.id.header_progress, 100, pct, false)
         if (earned > 0) {
@@ -239,6 +251,14 @@ object WidgetRenderer {
         val startDate = LocalDate.parse(weekStart, DateTimeFormatter.ISO_LOCAL_DATE)
         val todayDate = LocalDate.parse(today, DateTimeFormatter.ISO_LOCAL_DATE)
 
+        rv.setOnClickFillInIntent(
+            R.id.selected_date_label,
+            fillIn(WidgetActionReceiver.ACTION_LAUNCH_APP, "widget://goals/launch/date")
+        )
+        rv.setOnClickFillInIntent(
+            R.id.today_button,
+            fillIn(WidgetActionReceiver.ACTION_GO_TODAY, "widget://goals/nav/today")
+        )
         rv.setOnClickFillInIntent(
             R.id.nav_prev,
             fillIn(WidgetActionReceiver.ACTION_NAV_PREV, "widget://goals/nav/prev")

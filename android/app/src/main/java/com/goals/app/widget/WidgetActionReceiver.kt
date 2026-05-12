@@ -23,6 +23,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
             ACTION_NAV_PREV -> handleNav(context, prev = true)
             ACTION_NAV_NEXT -> handleNav(context, prev = false)
             ACTION_NAV_DAY -> handleNavDay(context, intent)
+            ACTION_GO_TODAY -> handleGoToday(context)
             ACTION_LAUNCH_APP -> handleLaunchApp(context)
         }
     }
@@ -147,6 +148,31 @@ class WidgetActionReceiver : BroadcastReceiver() {
         )
     }
 
+    private fun handleGoToday(context: Context) {
+        val pendingResult = goAsync()
+        try {
+            val cache = EntryPointAccessors.fromApplication(
+                context.applicationContext,
+                WidgetProviderEntryPoint::class.java
+            ).cache()
+            runBlocking { cache.hydrate() }
+            val snapshot = cache.snapshot()
+            val today = WidgetClock.today(snapshot)
+            if (today.isEmpty() || snapshot.selectedDate == today) return
+            val newWeekStart = WidgetDates.weekStartFor(today, snapshot.settings?.firstDayOfWeek)
+            if (newWeekStart != snapshot.weekStart) {
+                enqueueWeekFetch(context, newWeekStart, today)
+            } else {
+                cache.apply { s -> s.copy(selectedDate = today) }
+                WidgetUpdater.notifyListAndHeader(context, refreshClicks = false)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "GoToday error: ${t.message}")
+        } finally {
+            pendingResult.finish()
+        }
+    }
+
     private fun handleLaunchApp(context: Context) {
         val launch = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -169,6 +195,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
         const val ACTION_NAV_PREV = "nav_prev"
         const val ACTION_NAV_NEXT = "nav_next"
         const val ACTION_NAV_DAY = "nav_day"
+        const val ACTION_GO_TODAY = "go_today"
         const val ACTION_LAUNCH_APP = "launch_app"
     }
 }

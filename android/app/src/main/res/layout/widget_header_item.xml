@@ -10,6 +10,41 @@
 
     <LinearLayout
         android:layout_width="match_parent"
+        android:layout_height="24dp"
+        android:layout_marginBottom="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/selected_date_label"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:text="" />
+
+        <!--
+            layout_marginStart creates a 12dp non-clickable gap between the date
+            label (launches app) and the today icon (jumps to today). Without it,
+            the date label's right edge sits flush against the icon and an
+            edge-of-thumb tap on the icon could land on the launcher zone instead.
+        -->
+        <TextView
+            android:id="@+id/today_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="2dp"
+            android:textColor="@color/widget_accent"
+            android:textSize="16sp"
+            android:text="⌂" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
