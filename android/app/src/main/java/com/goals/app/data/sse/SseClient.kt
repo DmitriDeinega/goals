@@ -2,6 +2,7 @@ package com.goals.app.data.sse
 
 import android.util.Log
 import com.goals.app.data.api.NetworkModule
+import com.goals.app.widget.WidgetSessionStore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -24,22 +25,24 @@ sealed class SseMessage {
 }
 
 @Singleton
-class SseClient @Inject constructor() {
+class SseClient @Inject constructor(
+    private val sessions: WidgetSessionStore
+) {
 
-    // Dedicated OkHttpClient for SSE — long read timeout
     private val sseHttpClient = OkHttpClient.Builder()
         .addInterceptor { chain ->
             val request = chain.request().newBuilder()
-                .addHeader("X-Session-ID", NetworkModule.SESSION_ID)
+                .addHeader("X-Session-ID", NetworkModule.appSessionId(sessions))
                 .build()
             chain.proceed(request)
         }
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)   // no timeout — SSE is long-lived
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
     fun connect(serverUrl: String): Flow<SseMessage> = callbackFlow {
-        val url = "${serverUrl.trimEnd('/')}/api/events/?session_id=${NetworkModule.SESSION_ID}"
+        val sessionId = NetworkModule.appSessionId(sessions)
+        val url = "${serverUrl.trimEnd('/')}/api/events/?session_id=$sessionId"
         Log.i(TAG, "Connecting to $url")
         val request = Request.Builder().url(url).build()
 

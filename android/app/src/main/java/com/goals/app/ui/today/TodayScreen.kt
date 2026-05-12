@@ -35,6 +35,7 @@ fun TodayScreen(
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
     onToggle: (goalId: String, date: String, slotIndex: Int, currentValue: Boolean) -> Unit,
+    inFlightToggles: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val fmt = DateTimeFormatter.ISO_LOCAL_DATE
@@ -110,6 +111,7 @@ fun TodayScreen(
                     version = 0
                 )
                 GoalRow(
+                    inFlightToggles = inFlightToggles,
                     goal = effectiveGoal,
                     goalWeek = goalWeek,
                     log = log,

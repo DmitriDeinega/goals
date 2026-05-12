@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "671694829243",
+    "project_id": "goals-85336",
+    "storage_bucket": "goals-85336.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:671694829243:android:32abb35b29b1e65e999b9e",
+        "android_client_info": {
+          "package_name": "com.goals.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzJeRaUDsfTcHDhzeSxf94qUp4Vekmlno"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:671694829243:android:7f28491a779da4ef999b9e",
+        "android_client_info": {
+          "package_name": "com.goals.app.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzJeRaUDsfTcHDhzeSxf94qUp4Vekmlno"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

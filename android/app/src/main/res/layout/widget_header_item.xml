@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/header"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="4dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/nav_prev"
+            android:layout_width="22dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="16sp"
+            android:text="‹" />
+
+        <LinearLayout
+            android:id="@+id/day_strip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/day_0"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_3"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_4"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_5"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/day_6"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="2dp">
+                <TextView android:id="@+id/day_label_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="9sp" android:textStyle="bold" android:textColor="@color/widget_text_dim" android:text="" />
+                <TextView android:id="@+id/day_num_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/widget_text_secondary" android:text="" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/nav_next"
+            android:layout_width="22dp"
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="16sp"
+            android:text="›" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/header_summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="vertical">
+
+        <!--
+            minHeight pins the row to the natural height of the 13sp reward
+            TextView so the progress bar below doesn't shift vertically when
+            the reward toggles between gone/visible.
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="20dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/header_label"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/widget_text_dim"
+                android:textStyle="bold"
+                android:textSize="10sp"
+                android:letterSpacing="0.05"
+                android:text="THIS WEEK · 0%" />
+
+            <TextView
+                android:id="@+id/header_reward"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_accent"
+                android:textStyle="bold"
+                android:textSize="13sp"
+                android:visibility="gone"
+                android:text="" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/header_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:layout_marginTop="6dp"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/widget_progress_drawable"
+            android:indeterminate="false" />
+    </LinearLayout>
+</LinearLayout>

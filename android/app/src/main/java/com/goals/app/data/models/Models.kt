@@ -74,7 +74,7 @@ data class GoalChangedPayload(
     @SerializedName("goal_id") val goalId: String?,
     @SerializedName("goal_week") val goalWeek: GoalWeek?,
     val logs: List<GoalLog>?,
-    @SerializedName("reordered_goals") val reorderedGoals: List<Goal>?,
+    @SerializedName("reordered_goals") val reorderedGoals: List<ReorderItem>?,
     val seq: Long
 )
 

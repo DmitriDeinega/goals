@@ -156,32 +156,13 @@ export function useAppState() {
     if (togglingSlots.has(key)) return
     setTogglingSlots(prev => new Set([...prev, key]))
 
-    // Optimistic update
+    // Pessimistic: only apply state when server confirms via applyLogChanged.
     const newValue = !currentValue
-    setWeekState(prev => ({
-      ...prev,
-      logs: prev.logs.map(l => {
-        if (l.goal_id !== goalId || l.date !== date) return l
-        const slots = [...l.slots]
-        slots[slotIndex] = newValue
-        return { ...l, slots }
-      }),
-    }))
-
     try {
       const payload = await upsertLog({ goal_id: goalId, date, slot_index: slotIndex, value: newValue })
       applyLogChanged(payload)
     } catch {
-      // Revert optimistic update on failure
-      setWeekState(prev => ({
-        ...prev,
-        logs: prev.logs.map(l => {
-          if (l.goal_id !== goalId || l.date !== date) return l
-          const slots = [...l.slots]
-          slots[slotIndex] = currentValue
-          return { ...l, slots }
-        }),
-      }))
+      // No revert needed — state was never mutated.
     } finally {
       setTogglingSlots(prev => { const s = new Set(prev); s.delete(key); return s })
     }

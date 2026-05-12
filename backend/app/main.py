@@ -18,13 +18,14 @@ logging.basicConfig(
 logger = logging.getLogger("goals")
 
 from .database import connect_db, close_db, get_db
-from .routers import goals, logs, settings, weeks, events
+from .routers import goals, logs, settings, weeks, events, devices
 from .models import InitResponse, GoalWeekOut, LogOut
 from .time_utils import get_today, get_week_start, get_week_end
 from .routers.goals import goal_from_doc, get_settings_cached
 from .day_watcher import watch_day
 from .broadcaster import broadcast
 from .sequence import get_sequence, increment_sequence
+from .firebase_push import init_firebase, init_retry_loop, has_creds_env, is_enabled as fcm_is_enabled
 from pydantic import BaseModel
 from typing import List
 
@@ -41,6 +42,11 @@ async def ensure_indexes():
     await db.logs.create_index([("date", 1)])
     await db.goal_weeks.create_index([("week_start", 1), ("goal_id", 1)], unique=True)
     await db.goal_weeks.create_index([("week_start", 1), ("enabled", 1)])
+    await db.devices.create_index([("token", 1)], unique=True)
+    # TTL index: auto-delete device tokens that have not been seen for 60 days.
+    await db.devices.create_index(
+        [("last_seen_at", 1)], expireAfterSeconds=60 * 24 * 60 * 60
+    )
     logger.info("Indexes ensured")
 
 
@@ -63,6 +69,10 @@ async def lifespan(app: FastAPI):
     await connect_db()
     await ensure_indexes()
     await validate_settings()
+    initialized = init_firebase()
+    # If init failed but creds env is set, schedule a background retry loop.
+    if not initialized and has_creds_env():
+        asyncio.create_task(init_retry_loop())
     asyncio.create_task(watch_day())
     yield
     await close_db()
@@ -76,6 +86,7 @@ app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(weeks.router, prefix="/api/weeks", tags=["weeks"])
 app.include_router(events.router, prefix="/api/events", tags=["events"])
+app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
 
 
 @app.get("/api/health", tags=["health"])

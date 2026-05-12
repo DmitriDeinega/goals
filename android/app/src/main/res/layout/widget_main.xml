@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <!--
+        Header is itself a one-item adapter-backed ListView. We update the header
+        via notifyAppWidgetViewDataChanged(R.id.header_list) instead of
+        partiallyUpdateAppWidget, which sidesteps Samsung HoneySpace's
+        prepareView reset on the sibling goal_list.
+
+        Fixed height so the list doesn't collapse during data swap. Adjust if
+        header content changes.
+    -->
+    <ListView
+        android:id="@+id/header_list"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:listSelector="@android:color/transparent"
+        android:scrollbars="none" />
+
+    <ListView
+        android:id="@+id/goal_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:listSelector="@android:color/transparent"
+        android:scrollbars="none" />
+
+</LinearLayout>

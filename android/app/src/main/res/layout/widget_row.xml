@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="6dp">
+
+    <TextView
+        android:id="@+id/row_reward"
+        android:layout_width="38dp"
+        android:layout_height="wrap_content"
+        android:textColor="@color/widget_accent"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:text="" />
+
+    <TextView
+        android:id="@+id/row_progress"
+        android:layout_width="28dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="11sp"
+        android:text="" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/row_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/row_avoid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/widget_avoid_badge"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="2dp"
+            android:textColor="@color/widget_red"
+            android:textStyle="bold"
+            android:textSize="9sp"
+            android:text="avoid"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/row_slot_0"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:padding="7dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_ic_dot_dim"
+            android:background="@drawable/widget_btn_bg_surface"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/row_slot_1"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:padding="7dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_ic_dot_dim"
+            android:background="@drawable/widget_btn_bg_surface"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/row_slot_2"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:padding="7dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_ic_dot_dim"
+            android:background="@drawable/widget_btn_bg_surface"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/row_slot_3"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:padding="7dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_ic_dot_dim"
+            android:background="@drawable/widget_btn_bg_surface"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

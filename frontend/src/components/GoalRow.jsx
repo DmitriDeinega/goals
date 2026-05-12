@@ -46,6 +46,7 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
                 className={`toggle-btn ${getStatusClass(value, isNeg)}`}
                 onClick={() => onToggle(goal.id, date, i, value)}
                 disabled={toggling}
+                style={toggling ? { opacity: 0.5 } : undefined}
                 title={`${i + 1} of ${tpd}`}
               >
                 {getIcon(value, isNeg)}
@@ -54,13 +55,19 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
           })}
         </div>
       ) : (
-        <button
-          className={`toggle-btn ${getStatusClass(slots[0], isNeg)}`}
-          onClick={() => onToggle(goal.id, date, 0, slots[0])}
-          disabled={togglingSlots?.has(`${goal.id}:${date}:0`)}
-        >
-          {getIcon(slots[0], isNeg)}
-        </button>
+        (() => {
+          const toggling = togglingSlots?.has(`${goal.id}:${date}:0`)
+          return (
+            <button
+              className={`toggle-btn ${getStatusClass(slots[0], isNeg)}`}
+              onClick={() => onToggle(goal.id, date, 0, slots[0])}
+              disabled={toggling}
+              style={toggling ? { opacity: 0.5 } : undefined}
+            >
+              {getIcon(slots[0], isNeg)}
+            </button>
+          )
+        })()
       )}
     </div>
   )

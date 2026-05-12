@@ -65,12 +65,23 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
     val tabs = listOf("today", "goals")
     val pagerState = rememberPagerState { tabs.size }
     val tab = tabs[pagerState.currentPage]
+    // Start with device today so the first composition has a parseable date; once
+    // settings load we re-align to the server-tz today (which may differ).
     var selectedDate by remember { mutableStateOf(LocalDate.now().format(fmt)) }
+    var alignedToServer by remember { mutableStateOf(false) }
 
-    // Kill SSE on pause, full reload on resume; reset selected date to today on resume
+    LaunchedEffect(uiState.today) {
+        if (!alignedToServer && uiState.today.isNotEmpty()) {
+            selectedDate = uiState.today
+            alignedToServer = true
+        }
+    }
+
+    // Kill SSE on pause, full reload on resume; reset selected date to today on resume.
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            selectedDate = LocalDate.now().format(fmt)
+            val serverToday = viewModel.uiState.value.today
+            selectedDate = serverToday.ifEmpty { LocalDate.now().format(fmt) }
             viewModel.onResume()
             try {
                 awaitCancellation()
@@ -192,6 +203,7 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
             ) { page ->
                 when (tabs[page]) {
                     "today" -> TodayScreen(
+                        inFlightToggles = uiState.inFlightToggles,
                         goals = uiState.goals,
                         goalWeeks = uiState.week.goalWeeks,
                         logs = uiState.week.logs,

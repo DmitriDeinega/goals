@@ -33,6 +33,7 @@ fun GoalRow(
     weekLogs: List<GoalLog>,
     currency: String,
     onToggleSlot: (slotIndex: Int, currentValue: Boolean) -> Unit,
+    inFlightToggles: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val snap = goalWeek?.snapshot
@@ -124,10 +125,12 @@ fun GoalRow(
             // Toggle buttons (one per slot)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 slots.forEachIndexed { index, slotVal ->
+                    val key = "${goal.id}|$date|$index"
                     ToggleButton(
                         slotValue = slotVal,
                         isNegative = isNegative,
                         isMultiSlot = slotCount > 1,
+                        isToggling = key in inFlightToggles,
                         onClick = { onToggleSlot(index, slotVal) }
                     )
                 }

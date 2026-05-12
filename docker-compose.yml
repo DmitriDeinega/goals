@@ -21,6 +21,9 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017
       MONGO_DB: goals_db
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase_service_account
+    volumes:
+      - ./backend/goals-firebase-service-account.json:/run/secrets/firebase_service_account:ro
 
 volumes:
   goals_mongo_data:

@@ -2,4 +2,7 @@
 <resources>
     <string name="app_name">Goals</string>
     <string name="widget_name">Goals Today</string>
+    <string name="widget_description">Today\'s goals with quick toggles</string>
+    <string name="widget_loading"></string>
+    <string name="widget_empty">Add goals in the app</string>
 </resources>

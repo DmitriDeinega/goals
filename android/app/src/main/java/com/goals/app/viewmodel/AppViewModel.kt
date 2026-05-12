@@ -1,7 +1,8 @@
 package com.goals.app.viewmodel
 
+import android.app.Application
 import android.util.Log
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.goals.app.data.api.DEFAULT_SERVER_URL
 import com.goals.app.data.api.NetworkModule
@@ -11,6 +12,16 @@ import com.goals.app.data.sse.SseClient
 import com.goals.app.data.sse.SseMessage
 import com.goals.app.repository.ApiResult
 import com.goals.app.repository.GoalsRepository
+import com.goals.app.widget.DeviceRegistrationWorker
+import com.goals.app.widget.WidgetCache
+import com.goals.app.widget.WidgetSessionStore
+import com.goals.app.widget.WidgetUpdater
+import kotlinx.coroutines.Dispatchers
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.google.firebase.messaging.FirebaseMessaging
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,8 +52,14 @@ data class UiState(
     val loading: Boolean = true,
     val week: WeekState = WeekState(),
     val toast: String? = null,
-    val today: String = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+    val today: String = "",
+    /** Slot keys ("goalId|date|slotIndex") currently in flight for a pessimistic toggle.
+     *  UI dims those slots until the API call resolves. */
+    val inFlightToggles: Set<String> = emptySet()
 )
+
+fun toggleKey(goalId: String, date: String, slotIndex: Int): String =
+    "$goalId|$date|$slotIndex"
 
 // ── Calculation helpers ────────────────────────────────────────────────────────
 
@@ -149,9 +166,12 @@ fun computeWeekSummary(
 
 @HiltViewModel
 class AppViewModel @Inject constructor(
+    application: Application,
     private val repository: GoalsRepository,
-    private val sseClient: SseClient
-) : ViewModel() {
+    private val sseClient: SseClient,
+    private val widgetCache: WidgetCache,
+    private val sessions: WidgetSessionStore
+) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -160,6 +180,46 @@ class AppViewModel @Inject constructor(
     private val gson = Gson()
     private var sseJob: Job? = null
     private var sseRetryDelay = 1000L
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) { sessions.appSessionId() }
+        viewModelScope.launch { widgetCache.hydrate() }
+        registerFcmTokenIfAvailable()
+        viewModelScope.launch {
+            var lastPushed: Triple<List<Goal>, WeekState, String>? = null
+            uiState.collect { state ->
+                if (state.settings == null) return@collect
+                val key = Triple(state.goals, state.week, state.today)
+                if (key == lastPushed) return@collect
+                lastPushed = key
+                widgetCache.apply { s ->
+                    // Skip overwriting if the widget is navigated to a different week.
+                    if (s.weekStart.isNotEmpty() &&
+                        state.week.weekStart != null &&
+                        state.week.weekStart != s.weekStart
+                    ) {
+                        return@apply s.copy(
+                            goals = state.goals,
+                            today = state.today,
+                            settings = state.settings,
+                            lastSeq = maxOf(s.lastSeq, lastSeq)
+                        )
+                    }
+                    s.copy(
+                        goals = state.goals,
+                        goalWeeks = state.week.goalWeeks,
+                        logs = state.week.logs,
+                        today = state.today,
+                        weekStart = state.week.weekStart ?: s.weekStart,
+                        selectedDate = s.selectedDate.ifEmpty { state.today },
+                        settings = state.settings,
+                        lastSeq = maxOf(s.lastSeq, lastSeq)
+                    )
+                }
+                WidgetUpdater.notifyListAndHeader(getApplication(), refreshClicks = false)
+            }
+        }
+    }
 
 
     // ── Load ─────────────────────────────────────────────────────────────────
@@ -176,6 +236,7 @@ class AppViewModel @Inject constructor(
                     _uiState.update { it.copy(
                         goals = data.goals.sortedBy { g -> g.order },
                         settings = data.settings,
+                        today = com.goals.app.widget.WidgetClock.today(data.settings),
                         loading = false,
                         week = WeekState(
                             goalWeeks = data.goalWeeks,
@@ -214,45 +275,30 @@ class AppViewModel @Inject constructor(
     // ── Toggle ────────────────────────────────────────────────────────────────
 
     fun toggle(goalId: String, date: String, slotIndex: Int, currentValue: Boolean) {
-        // Optimistic update
-        val newValue = !currentValue
-        _uiState.update { state ->
-            state.copy(week = state.week.copy(
-                logs = state.week.logs.map { log ->
-                    if (log.goalId == goalId && log.date == date) {
-                        val newSlots = log.slots.toMutableList().also { it[slotIndex] = newValue }
-                        log.copy(slots = newSlots)
-                    } else log
-                }
-            ))
-        }
+        val key = toggleKey(goalId, date, slotIndex)
+        if (key in _uiState.value.inFlightToggles) return  // suppress double-tap
+        _uiState.update { it.copy(inFlightToggles = it.inFlightToggles + key) }
+        val desired = !currentValue
         viewModelScope.launch {
-            val result = repository.toggleSlot(ToggleSlotRequest(goalId, date, slotIndex, newValue))
-            when (result) {
-                is ApiResult.Success -> {
-                    lastSeq = result.data.seq
-                    applyLogChanged(result.data.goalId, result.data.logs)
-                }
-                is ApiResult.Error -> {
-                    // Revert optimistic update
-                    _uiState.update { state ->
-                        state.copy(week = state.week.copy(
-                            logs = state.week.logs.map { log ->
-                                if (log.goalId == goalId && log.date == date) {
-                                    val reverted = log.slots.toMutableList().also { it[slotIndex] = currentValue }
-                                    log.copy(slots = reverted)
-                                } else log
-                            }
-                        ))
+            try {
+                val result = repository.toggleSlot(ToggleSlotRequest(goalId, date, slotIndex, desired))
+                when (result) {
+                    is ApiResult.Success -> {
+                        lastSeq = result.data.seq
+                        applyLogChanged(result.data.goalId, result.data.logs)
                     }
-                    val msg = when (result.code) {
-                        409 -> "Out of sync. Reloading..."
-                        0 -> "No connection. Check your network."
-                        else -> "Failed to update (${result.code})"
+                    is ApiResult.Error -> {
+                        val msg = when (result.code) {
+                            409 -> "Out of sync. Reloading..."
+                            0 -> "No connection. Check your network."
+                            else -> "Failed to update (${result.code})"
+                        }
+                        if (result.code == 409) loadData()
+                        showToast(msg)
                     }
-                    if (result.code == 409) loadData()
-                    showToast(msg)
                 }
+            } finally {
+                _uiState.update { it.copy(inFlightToggles = it.inFlightToggles - key) }
             }
         }
     }
@@ -377,7 +423,7 @@ class AppViewModel @Inject constructor(
                     val deletedId = payload.goalId ?: payload.goal?.id ?: return@update state
                     goals = goals.filter { it.id != deletedId }
                     if (!payload.reorderedGoals.isNullOrEmpty()) {
-                        val orderMap = payload.reorderedGoals.associate { it.id to it.order }
+                        val orderMap = payload.reorderedGoals.associate { it.goalId to it.newOrder }
                         goals = goals.map { g -> orderMap[g.id]?.let { g.copy(order = it) } ?: g }.sortedBy { it.order }
                     }
                     weekState = weekState.copy(
@@ -425,7 +471,7 @@ class AppViewModel @Inject constructor(
 
     private fun startSse() {
         sseJob?.cancel()
-        sseJob = viewModelScope.launch {
+        sseJob = viewModelScope.launch(Dispatchers.IO) {
             sseRetryDelay = 1000L
             while (true) {
                 try {
@@ -502,6 +548,25 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    // ── FCM ───────────────────────────────────────────────────────────────────
+
+    private fun registerFcmTokenIfAvailable() {
+        try {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                if (token.isNullOrEmpty()) return@addOnSuccessListener
+                val req = OneTimeWorkRequestBuilder<DeviceRegistrationWorker>()
+                    .setInputData(workDataOf(DeviceRegistrationWorker.K_TOKEN to token))
+                    .build()
+                WorkManager.getInstance(getApplication())
+                    .enqueueUniqueWork("device-register", ExistingWorkPolicy.KEEP, req)
+            }.addOnFailureListener { e ->
+                android.util.Log.w("AppViewModel", "FCM token unavailable: ${e.message}")
+            }
+        } catch (e: Throwable) {
+            android.util.Log.w("AppViewModel", "Firebase not configured: ${e.message}")
+        }
+    }
+
     // ── UI helpers ────────────────────────────────────────────────────────────
 
     fun getLog(goalId: String, date: String): GoalLog? =
@@ -517,13 +582,17 @@ class AppViewModel @Inject constructor(
 
     // Called when app comes to foreground
     fun onPause() {
-        sseJob?.cancel()
-        sseJob = null
+        // Keep SSE running if a widget exists, so web/other-device toggles reach
+        // the widget while the process is still alive. Otherwise cancel to save battery.
+        if (!WidgetUpdater.hasWidgets(getApplication())) {
+            sseJob?.cancel()
+            sseJob = null
+        }
     }
 
     fun onResume() {
         // Refresh today from device clock — SSE day_changed may have fired while paused
-        _uiState.update { it.copy(today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)) }
+        _uiState.update { it.copy(today = com.goals.app.widget.WidgetClock.today(it.settings)) }
         loadData()
     }
 

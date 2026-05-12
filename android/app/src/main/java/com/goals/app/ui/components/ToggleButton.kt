@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
@@ -29,7 +30,8 @@ fun ToggleButton(
     isNegative: Boolean,
     isMultiSlot: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isToggling: Boolean = false
 ) {
     val isFail   = isNegative && !slotValue   // negative + false = failed (showed ✗)
     val isSuccess = if (isNegative) slotValue  // negative + true  = avoided (success, no icon)
@@ -65,7 +67,8 @@ fun ToggleButton(
             .clip(shape)
             .drawBehind { drawRect(bgColor) }
             .border(2.dp, borderColor, shape)
-            .clickable { onClick() }
+            .then(if (isToggling) Modifier.alpha(0.5f) else Modifier)
+            .clickable(enabled = !isToggling) { onClick() }
             .then(if (isMultiSlot) Modifier.padding(horizontal = 10.dp) else Modifier),
         contentAlignment = Alignment.Center
     ) {
