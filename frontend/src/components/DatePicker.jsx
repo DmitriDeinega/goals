@@ -71,7 +71,7 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
           ? <button className="dp-clear" onMouseDown={clear}>×</button>
           : showToday
             ? <button
-                className="dp-clear"
+                className="dp-clear dp-today"
                 style={{ opacity: selected && selected.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD') ? 1 : 0.5, fontSize: '18px', color: selected && selected.format('YYYY-MM-DD') !== dayjs().format('YYYY-MM-DD') ? 'var(--accent)' : '#aaaaaa' }}
                 onMouseDown={(e) => {
                   e.preventDefault()

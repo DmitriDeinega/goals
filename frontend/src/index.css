@@ -1023,6 +1023,16 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .dp-clear:hover { color: var(--red); }
 
+/* Today (home) icon — scale up on hover to match Windows. Doesn't apply
+   when the icon is dimmed (already-on-today state, opacity 0.5). */
+.dp-clear.dp-today {
+  transition: transform 0.15s, color 0.15s;
+}
+.dp-clear.dp-today:hover {
+  transform: scale(1.15);
+  color: var(--accent);
+}
+
 .dp-popup {
   position: absolute;
   top: calc(100% + 6px);
