@@ -204,7 +204,7 @@ body {
   gap: 4px;
   padding: 8px 4px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border2);
+  border: 1px solid transparent;
   background: none;
   cursor: pointer;
   transition: all 0.15s;
