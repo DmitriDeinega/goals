@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { computeGoalStats, getDaysUpTo } from '../hooks/useAppState'
 import dayjs from 'dayjs'
 
@@ -11,6 +12,12 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
   const isNeg = goal.is_negative
   const tpd = goal.times_per_day || 1
 
+  // Slots that were just toggled. While the pointer remains over the slot
+  // after the click, suppress the :hover preview — otherwise the slot
+  // flashes the action-color it just LEFT (e.g. green hover lingering on a
+  // freshly-unchecked goal), which reads as "the click didn't take".
+  const [justClicked, setJustClicked] = useState(null)
+
   const cutoff = weekEnd < today ? weekEnd : today
   const weekDays = getDaysUpTo(weekStart, cutoff)
   const { completions, total_slots, earned_reward } = computeGoalStats(goal, logs, weekDays)
@@ -18,13 +25,20 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
   const progress = `${completions}/${total_slots}`
   const earned = earned_reward > 0 ? fmt(currency, earned_reward) : ''
 
-  // Get log doc for this goal on this date — contains slots array
   const logDoc = getLog(goal.id, date)
   const defaultSlotValue = isNeg ? true : false
 
   const slots = logDoc
     ? logDoc.slots
     : Array(tpd).fill(defaultSlotValue)
+
+  const handleClick = (i, value) => {
+    setJustClicked(i)
+    onToggle(goal.id, date, i, value)
+  }
+  const handleMouseLeave = (i) => {
+    if (justClicked === i) setJustClicked(null)
+  }
 
   return (
     <div className="goal-row">
@@ -43,8 +57,9 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
             return (
               <button
                 key={i}
-                className={`toggle-btn ${getStatusClass(value, isNeg)} ${isNeg ? 'neg' : ''}`}
-                onClick={() => onToggle(goal.id, date, i, value)}
+                className={`toggle-btn ${getStatusClass(value, isNeg)} ${isNeg ? 'neg' : ''} ${justClicked === i ? 'just-clicked' : ''}`}
+                onClick={() => handleClick(i, value)}
+                onMouseLeave={() => handleMouseLeave(i)}
                 disabled={toggling}
                 style={toggling ? { opacity: 0.5 } : undefined}
                 title={`${i + 1} of ${tpd}`}
@@ -59,8 +74,9 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
           const toggling = togglingSlots?.has(`${goal.id}:${date}:0`)
           return (
             <button
-              className={`toggle-btn ${getStatusClass(slots[0], isNeg)} ${isNeg ? 'neg' : ''}`}
-              onClick={() => onToggle(goal.id, date, 0, slots[0])}
+              className={`toggle-btn ${getStatusClass(slots[0], isNeg)} ${isNeg ? 'neg' : ''} ${justClicked === 0 ? 'just-clicked' : ''}`}
+              onClick={() => handleClick(0, slots[0])}
+              onMouseLeave={() => handleMouseLeave(0)}
               disabled={toggling}
               style={toggling ? { opacity: 0.5 } : undefined}
             >

@@ -351,6 +351,26 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
   background: var(--red-dim);
 }
 
+/* After-click suppression: while the pointer is still over the slot after a
+   click, freeze the visual state at "current" — no hover preview, no scale.
+   Cleared by onMouseLeave in GoalRow. */
+.toggle-btn.just-clicked,
+.toggle-btn.just-clicked:hover {
+  transform: none;
+}
+.toggle-btn.just-clicked:not(.success):not(.fail):hover {
+  background: none;
+  border-color: var(--border2);
+}
+.toggle-btn.just-clicked.success:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+.toggle-btn.just-clicked.fail:hover {
+  background: var(--red-dim);
+  border-color: var(--red);
+}
+
 .toggle-btn.twice {
   width: auto;
   border-radius: 20px;
@@ -773,16 +793,15 @@ input[type="number"] { -moz-appearance: textfield; }
   transform: translateX(18px);
 }
 
-/* Hover: enlarge the thumb slightly. No box-shadow, no border. */
+/* Hover: enlarge the thumb slightly. No box-shadow, no border. The
+   on-state hover doesn't need its own rule — the inherited left:2px
+   keeps the right edge 2px clear of the container even after the
+   translateX(18px) shift. */
 .switch:hover::after {
   width: 18px;
   height: 18px;
   top: 2px;
   left: 2px;
-}
-.switch.on:hover::after {
-  top: 2px;
-  left: 4px;
 }
 
 /* Reward rules */
