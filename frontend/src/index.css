@@ -750,19 +750,11 @@ input[type="number"] { -moz-appearance: textfield; }
   position: relative;
   cursor: pointer;
   border: none;
-  transition: background 0.2s, box-shadow 0.15s;
-}
-
-.switch:hover:not(.on) {
-  box-shadow: 0 0 0 2px var(--accent-dim);
+  transition: background 0.2s;
 }
 
 .switch.on {
   background: var(--accent);
-}
-
-.switch.on:hover {
-  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .switch::after {
@@ -774,11 +766,23 @@ input[type="number"] { -moz-appearance: textfield; }
   background: var(--bg);
   top: 3px;
   left: 3px;
-  transition: transform 0.2s;
+  transition: transform 0.2s, width 0.15s, height 0.15s, top 0.15s, left 0.15s;
 }
 
 .switch.on::after {
   transform: translateX(18px);
+}
+
+/* Hover: enlarge the thumb slightly. No box-shadow, no border. */
+.switch:hover::after {
+  width: 18px;
+  height: 18px;
+  top: 2px;
+  left: 2px;
+}
+.switch.on:hover::after {
+  top: 2px;
+  left: 4px;
 }
 
 /* Reward rules */
