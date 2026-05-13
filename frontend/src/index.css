@@ -116,6 +116,10 @@ body {
   transition: color 0.2s;
 }
 
+.tab:hover {
+  color: var(--text);
+}
+
 .tab.active {
   color: var(--text);
 }
@@ -200,10 +204,18 @@ body {
   gap: 4px;
   padding: 8px 4px;
   border-radius: var(--radius-sm);
-  border: 1px solid transparent;
+  border: 1px solid var(--border2);
   background: none;
   cursor: pointer;
   transition: all 0.15s;
+}
+
+.day-btn:hover:not(.future):not(.selected) {
+  border-color: var(--accent);
+}
+.day-btn:hover:not(.future):not(.selected) .day-name,
+.day-btn:hover:not(.future):not(.selected) .day-num {
+  color: var(--accent);
 }
 
 .day-btn .day-name {
@@ -321,6 +333,20 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 }
 
 .toggle-btn.fail {
+  border-color: var(--red);
+  background: var(--red-dim);
+}
+
+/* Hover preview: shows the action color (lime for positive, red for avoid)
+   and scales slightly. Mirrors the Windows behavior. */
+.toggle-btn:hover { transform: scale(1.1); }
+
+.toggle-btn:not(.neg):not(.success):hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.toggle-btn.neg:not(.fail):hover {
   border-color: var(--red);
   background: var(--red-dim);
 }
@@ -470,7 +496,7 @@ input[type="search"]::-webkit-search-results-decoration { display: none; }
 }
 
 .goal-card:hover {
-  border-color: var(--border2);
+  border-color: var(--accent);
 }
 
 .drag-handle {
