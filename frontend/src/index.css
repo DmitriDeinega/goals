@@ -713,6 +713,11 @@ input[type="number"] { -moz-appearance: textfield; }
   transition: all 0.15s;
 }
 
+.type-option:hover:not(.active) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .type-option.active {
   border-color: var(--accent);
   color: var(--accent);
@@ -745,11 +750,19 @@ input[type="number"] { -moz-appearance: textfield; }
   position: relative;
   cursor: pointer;
   border: none;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.15s;
+}
+
+.switch:hover:not(.on) {
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .switch.on {
   background: var(--accent);
+}
+
+.switch.on:hover {
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .switch::after {
@@ -840,10 +853,10 @@ input[type="number"] { -moz-appearance: textfield; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: font-size 0.15s, transform 0.15s;
 }
 
-.btn-primary:hover { opacity: 0.9; }
+.btn-primary:hover { font-size: 14px; }
 
 .btn-secondary {
   flex: 1;
@@ -861,7 +874,7 @@ input[type="number"] { -moz-appearance: textfield; }
   transition: all 0.15s;
 }
 
-.btn-secondary:hover { border-color: var(--text2); color: var(--text); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
 
 .btn-danger {
   flex: 1;
