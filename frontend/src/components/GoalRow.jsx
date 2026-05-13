@@ -59,7 +59,7 @@ export default function GoalRow({ goal, date, logs, weekStart, weekEnd, today, g
           const toggling = togglingSlots?.has(`${goal.id}:${date}:0`)
           return (
             <button
-              className={`toggle-btn ${getStatusClass(slots[0], isNeg)}`}
+              className={`toggle-btn ${getStatusClass(slots[0], isNeg)} ${isNeg ? 'neg' : ''}`}
               onClick={() => onToggle(goal.id, date, 0, slots[0])}
               disabled={toggling}
               style={toggling ? { opacity: 0.5 } : undefined}

@@ -1,5 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+// Self-host the fonts so they ship with the JS bundle — no Google Fonts
+// fetch, no font-display:swap flash of unstyled text on first paint.
+import '@fontsource/syne/400.css'
+import '@fontsource/syne/500.css'
+import '@fontsource/syne/600.css'
+import '@fontsource/syne/700.css'
+import '@fontsource/dm-mono/400.css'
+import '@fontsource/dm-mono/500.css'
 import './index.css'
 import App from './App'
 
