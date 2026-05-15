@@ -209,6 +209,10 @@ export function useAppState() {
   }
 
   const reorder = async (orderedIds) => {
+    // Snapshot prior order so we can revert if the server rejects. Previously
+    // a 409/network failure left the UI silently diverged from the backend.
+    const priorGoals = goals
+    const priorGoalWeeks = weekState.goalWeeks
     setGoals(prev => {
       const updated = prev.map(g => {
         const newOrder = orderedIds.indexOf(g.id)
@@ -225,7 +229,20 @@ export function useAppState() {
       })
     }))
     const items = orderedIds.map((goal_id, index) => ({ goal_id, new_order: index }))
-    await reorderGoals(items)
+    try {
+      await reorderGoals(items)
+    } catch (e) {
+      if (e.status === 409) {
+        // Another client moved meanwhile — fetch authoritative state.
+        toast('Reorder out of sync. Reloading...')
+        await load()
+      } else {
+        // Network/5xx: restore prior order.
+        setGoals(priorGoals)
+        setWeekState(prev => ({ ...prev, goalWeeks: priorGoalWeeks }))
+        toast(`Reorder failed: ${e.message || 'network error'}`)
+      }
+    }
   }
 
   const applyGoalChanged = (payload) => {

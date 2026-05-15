@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
 import { useAppState, computeWeekSummary } from './hooks/useAppState'
 import { useEvents } from './hooks/useEvents'
 import { ensureWeek } from './api'
 import TodayPage from './pages/TodayPage'
 import GoalsPage from './pages/GoalsPage'
 import ToastContainer from './components/Toast'
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
 
 const TABS = ['today', 'goals']
 
@@ -21,9 +26,14 @@ function getWeekStart(date, firstDay = 'sunday') {
 
 export default function App() {
   const [tab, setTab] = useState(() => sessionStorage.getItem('goals_tab') || 'today')
+  // Initial values come from the browser timezone — replaced as soon as
+  // `settings.timezone` arrives so week math agrees with the server. Without
+  // this fix, a user whose browser tz differs from settings tz could land on
+  // the wrong week on first paint (matches Android/Windows behaviour).
   const [selectedDate, setSelectedDate] = useState(dayjs().format('YYYY-MM-DD'))
   const [sseEnabled, setSseEnabled] = useState(false)
-  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))  // overwritten by server value on init
+  const [today, setToday] = useState(dayjs().format('YYYY-MM-DD'))
+  const tzAppliedRef = useRef(false)
 
   const {
     goals, goalWeeks, logs, settings, loading, load, loadWeek, visibleWeekStart,
@@ -41,6 +51,20 @@ export default function App() {
     ensureWeek().catch(() => {})
     load().then(() => setSseEnabled(true))
   }, [])
+
+  // Re-align today/selectedDate to settings timezone once it's known. We only
+  // bump selectedDate the FIRST time so a user who's already navigated to a
+  // different day doesn't get snapped back to today.
+  useEffect(() => {
+    const tz = settings?.timezone
+    if (!tz) return
+    const tzToday = dayjs().tz(tz).format('YYYY-MM-DD')
+    setToday(tzToday)
+    if (!tzAppliedRef.current) {
+      setSelectedDate(tzToday)
+      tzAppliedRef.current = true
+    }
+  }, [settings?.timezone])
 
   const firstDay = settings?.first_day_of_week || 'sunday'
   const weekStart = getWeekStart(selectedDate, firstDay)

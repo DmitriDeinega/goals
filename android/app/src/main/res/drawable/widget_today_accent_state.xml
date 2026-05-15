@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Today (⌂) icon when navigation to today is available (accent color). At rest
+  the icon is inset by 3dp inside its 24x24dp ImageView frame — looks small.
+  On hover the inset drops to 0dp so the icon fills the full frame, faking a
+  "scale up" within the fixed ImageView bounds. True view scaling isn't
+  possible in a widget; this is the closest practical approximation.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_hovered="true">
+        <inset
+            android:drawable="@drawable/widget_ic_home_accent"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp" />
+    </item>
+    <item>
+        <inset
+            android:drawable="@drawable/widget_ic_home_accent"
+            android:insetLeft="3dp"
+            android:insetTop="3dp"
+            android:insetRight="3dp"
+            android:insetBottom="3dp" />
+    </item>
+</selector>

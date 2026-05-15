@@ -47,6 +47,22 @@ async def ensure_indexes():
     await db.devices.create_index(
         [("last_seen_at", 1)], expireAfterSeconds=60 * 24 * 60 * 60
     )
+    # Case-insensitive unique name. Backs up the application-level duplicate
+    # check in create_goal/update_goal — without this index, two concurrent
+    # creates can both pass the find_one check and both insert. Mongo's
+    # `strength: 2` collation makes "Run" and "run" collide.
+    await db.goals.create_index(
+        [("name", 1)],
+        unique=True,
+        collation={"locale": "en", "strength": 2},
+    )
+    # Seed the global sequence doc so the atomic CAS in consume_client_seq
+    # has a row to match against on the very first mutation. Idempotent.
+    await db.sequence.update_one(
+        {"_id": "global"},
+        {"$setOnInsert": {"seq": 0}},
+        upsert=True,
+    )
     logger.info("Indexes ensured")
 
 

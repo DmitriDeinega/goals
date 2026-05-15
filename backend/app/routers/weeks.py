@@ -5,8 +5,8 @@ from ..database import get_db
 from ..time_utils import get_today, get_week_start, get_week_end
 from ..models import GoalChangedPayload, GoalWeekOut
 from ..broadcaster import broadcast
-from ..sequence import increment_sequence
-from .goals import goal_from_doc, goal_week_from_doc, get_settings_cached, validate_client_seq
+from ..sequence import consume_client_seq
+from .goals import goal_from_doc, goal_week_from_doc, get_settings_cached
 from .logs import get_goal_week_logs
 
 router = APIRouter()
@@ -65,7 +65,7 @@ async def ensure_week():
 async def set_goal_enabled(goal_id: str, body: dict, request: Request):
     try:
         db = get_db()
-        await validate_client_seq(request)
+        seq = await consume_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
@@ -81,7 +81,6 @@ async def set_goal_enabled(goal_id: str, body: dict, request: Request):
         goal_doc = await db.goals.find_one({"_id": ObjectId(goal_id)})
         goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
-        seq = await increment_sequence()
 
         payload = GoalChangedPayload(
             action="updated",

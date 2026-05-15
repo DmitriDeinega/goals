@@ -1111,8 +1111,13 @@ input[type="number"] { -moz-appearance: textfield; }
   justify-content: center;
 }
 
-.dp-day:hover:not(.dis) {
+.dp-day:hover:not(.dis):not(.sel) {
   background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Today's date stays accent-colored even when not selected — mirrors Android. */
+.dp-day.today:not(.sel) {
   color: var(--accent);
 }
 

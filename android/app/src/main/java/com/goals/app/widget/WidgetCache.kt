@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.goals.app.data.models.Goal
 import com.goals.app.data.models.GoalLog
 import com.goals.app.data.models.GoalWeek
 import com.google.gson.Gson
@@ -91,6 +92,93 @@ class WidgetCache @Inject constructor(
             val kept = s.logs.filter { it.goalId != goalId || it.date !in updatedDates }
             s.copy(logs = kept + updatedLogs, lastSeq = maxOf(s.lastSeq, seq))
         }
+    }
+
+    /** Apply a `goal_changed` event payload to the cached snapshot directly,
+     *  so the widget stays in sync without scheduling a network refresh.
+     *  Mirrors AppViewModel.applyGoalChanged. Returns false if the payload's
+     *  seq is stale (caller should fall back to a full refresh). */
+    fun applyGoalChanged(
+        action: String,
+        seq: Long,
+        goal: Goal?,
+        goalId: String?,
+        goalWeek: GoalWeek?,
+        logs: List<GoalLog>?,
+        reorderedGoals: List<com.goals.app.data.models.ReorderItem>?
+    ): Boolean {
+        var stale = false
+        apply { s ->
+            if (seq < s.lastSeq) { stale = true; return@apply s }
+            val visibleWeekStart = s.weekStart
+            var nextGoals = s.goals
+            var nextGoalWeeks = s.goalWeeks
+            var nextLogs = s.logs
+            when (action) {
+                "created" -> {
+                    if (goal != null) nextGoals = (nextGoals + goal).sortedBy { it.order }
+                    if (goalWeek != null && goalWeek.weekStart == visibleWeekStart) {
+                        nextGoalWeeks = nextGoalWeeks + goalWeek
+                        if (!logs.isNullOrEmpty()) nextLogs = nextLogs + logs
+                    }
+                }
+                "updated" -> {
+                    if (goal != null) nextGoals = nextGoals.map { if (it.id == goal.id) goal else it }.sortedBy { it.order }
+                    if (goalWeek != null && goalWeek.weekStart == visibleWeekStart) {
+                        nextGoalWeeks = nextGoalWeeks.map { if (it.goalId == goalWeek.goalId) goalWeek else it }
+                        if (!logs.isNullOrEmpty() && goal != null) {
+                            val updatedDates = logs.map { it.date }.toSet()
+                            nextLogs = nextLogs.filter { it.goalId != goal.id || it.date !in updatedDates } + logs
+                        }
+                    }
+                }
+                "deleted" -> {
+                    val deletedId = goalId ?: goal?.id ?: return@apply s
+                    nextGoals = nextGoals.filter { it.id != deletedId }
+                    if (!reorderedGoals.isNullOrEmpty()) {
+                        val orderMap = reorderedGoals.associate { it.goalId to it.newOrder }
+                        nextGoals = nextGoals.map { g -> orderMap[g.id]?.let { g.copy(order = it) } ?: g }.sortedBy { it.order }
+                    }
+                    nextGoalWeeks = nextGoalWeeks.filter { it.goalId != deletedId }
+                    nextLogs = nextLogs.filter { it.goalId != deletedId }
+                }
+                "enabled_changed" -> {
+                    if (goalWeek != null && goalWeek.weekStart == visibleWeekStart) {
+                        nextGoalWeeks = nextGoalWeeks.map { if (it.goalId == goalWeek.goalId) goalWeek else it }
+                    }
+                }
+                "reordered" -> {
+                    if (goalId != null && reorderedGoals == null) {
+                        // single-goal reorder: backend may send action=reordered with new_order on payload;
+                        // the widget receives a list (one per goal), each handled here. Fall back to refresh
+                        // if shape isn't recognized.
+                        return@apply s
+                    }
+                }
+                else -> return@apply s
+            }
+            s.copy(
+                goals = nextGoals,
+                goalWeeks = nextGoalWeeks,
+                logs = nextLogs,
+                lastSeq = maxOf(s.lastSeq, seq)
+            )
+        }
+        return !stale
+    }
+
+    fun applyDayChanged(date: String, newLogs: List<GoalLog>, seq: Long): Boolean {
+        var stale = false
+        apply { s ->
+            if (seq < s.lastSeq) { stale = true; return@apply s }
+            val kept = s.logs.filter { it.date != date }
+            s.copy(
+                today = date,
+                logs = kept + newLogs,
+                lastSeq = maxOf(s.lastSeq, seq)
+            )
+        }
+        return !stale
     }
 
     fun replaceWeek(goalWeeks: List<GoalWeek>, logs: List<GoalLog>, weekStart: String) {

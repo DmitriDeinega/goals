@@ -27,6 +27,19 @@ android/app/release/
 *.keystore
 *.jks
 
+# Windows / .NET
+windows/bin/
+windows/obj/
+windows/AppPackages/
+windows/BundleArtifacts/
+windows/*.user
+windows/.vs/
+*.pfx
+
+# Local debug artifacts
+screenshot.png
+*.bak
+
 # Docker
 *.log
 

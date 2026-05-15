@@ -5,7 +5,7 @@ from ..database import get_db
 from ..models import LogCreate, LogOut, LogChangedPayload
 from ..time_utils import get_today, get_week_start, get_week_end
 from ..broadcaster import broadcast
-from ..sequence import increment_sequence, get_sequence
+from ..sequence import consume_client_seq
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.logs")
@@ -132,16 +132,9 @@ async def upsert_log(log: LogCreate, request: Request):
         if log.date > today_str:
             raise HTTPException(status_code=400, detail="Cannot log a future date")
 
-        # Validate client sequence
-        client_seq = request.headers.get("X-Sequence")
-        if client_seq is not None:
-            try:
-                parsed_seq = int(client_seq)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid X-Sequence header")
-            current_seq = await get_sequence()
-            if parsed_seq != current_seq:
-                raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+        # Atomic CAS: validates X-Sequence and reserves the next seq in one
+        # round-trip. Returns the new seq for the broadcast payload below.
+        seq = await consume_client_seq(request)
 
         # Validate slot_index bounds
         goal_doc_for_bounds = await db.goals.find_one({"_id": ObjectId(log.goal_id)})
@@ -174,7 +167,6 @@ async def upsert_log(log: LogCreate, request: Request):
         week_end = get_week_end(week_start)
         goal_logs = await get_goal_week_logs(db, log.goal_id, week_start, week_end)
 
-        seq = await increment_sequence()
         payload = LogChangedPayload(goal_id=log.goal_id, logs=goal_logs, seq=seq)
 
         session_id = request.headers.get("X-Session-ID")

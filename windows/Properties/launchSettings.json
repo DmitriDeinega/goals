@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "Goals.Windows": {
+      "commandName": "Project"
+    }
+  }
+}

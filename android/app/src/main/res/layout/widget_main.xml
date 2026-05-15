@@ -13,12 +13,14 @@
         prepareView reset on the sibling goal_list.
 
         Fixed height so the list doesn't collapse during data swap. Adjust if
-        header content changes.
+        header content changes — the value must cover the date row + week strip
+        + summary + progress bar without clipping, otherwise the ListView
+        becomes scrollable and the progress bar disappears below the fold.
     -->
     <ListView
         android:id="@+id/header_list"
         android:layout_width="match_parent"
-        android:layout_height="100dp"
+        android:layout_height="124dp"
         android:divider="@null"
         android:dividerHeight="0dp"
         android:listSelector="@android:color/transparent"

@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="Goals_Windows.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Goals_Windows">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="ms-appx:///Resources/Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Override default button hover/pressed brushes app-wide to use the
+                 accent (lime) palette so hover doesn't paint a Fluent-gray that
+                 looks indistinguishable from our "off" slot state. -->
+            <SolidColorBrush x:Key="ButtonBackgroundPointerOver"  Color="#0FC8F135" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed"      Color="#1FC8F135" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#C8F135" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPressed"     Color="#C8F135" />
+            <SolidColorBrush x:Key="ButtonForegroundPointerOver"  Color="#C8F135" />
+            <SolidColorBrush x:Key="ButtonForegroundPressed"      Color="#C8F135" />
+
+            <!-- TextBox without the inline "X" clear button. Why retemplate:
+                 the default template wires DeleteButton via animation-precedence
+                 Storyboard in the `ButtonStates` VSM, which clobbers any
+                 local Visibility setter the moment the user focuses + types.
+                 If no element named "DeleteButton" exists in the template,
+                 the storyboard targets nothing and no-ops. -->
+            <Style x:Key="NoClearButtonTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TextBox">
+                            <Grid>
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver" />
+                                        <VisualState x:Name="Focused">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BorderElement" Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0">
+                                                        <DiscreteObjectKeyFrame.Value>
+                                                            <SolidColorBrush Color="#C8F135" />
+                                                        </DiscreteObjectKeyFrame.Value>
+                                                    </DiscreteObjectKeyFrame>
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled" />
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <ContentPresenter x:Name="HeaderContentPresenter"
+                                    Grid.Row="0"
+                                    Content="{TemplateBinding Header}"
+                                    ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                    Foreground="{ThemeResource TextControlHeaderForeground}"
+                                    FontWeight="Normal"
+                                    Margin="{ThemeResource TextBoxTopHeaderMargin}"
+                                    Visibility="Collapsed"
+                                    x:DeferLoadStrategy="Lazy" />
+                                <Border x:Name="BorderElement"
+                                    Grid.Row="1"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{TemplateBinding CornerRadius}"
+                                    Control.IsTemplateFocusTarget="True"
+                                    MinWidth="{TemplateBinding MinWidth}"
+                                    MinHeight="{TemplateBinding MinHeight}" />
+                                <ScrollViewer x:Name="ContentElement"
+                                    Grid.Row="1"
+                                    Margin="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}"
+                                    Foreground="{TemplateBinding Foreground}"
+                                    HorizontalScrollMode="{TemplateBinding ScrollViewer.HorizontalScrollMode}"
+                                    HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                                    VerticalScrollMode="{TemplateBinding ScrollViewer.VerticalScrollMode}"
+                                    VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"
+                                    IsHorizontalRailEnabled="{TemplateBinding ScrollViewer.IsHorizontalRailEnabled}"
+                                    IsVerticalRailEnabled="{TemplateBinding ScrollViewer.IsVerticalRailEnabled}"
+                                    IsDeferredScrollingEnabled="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}"
+                                    IsTabStop="False"
+                                    ZoomMode="Disabled"
+                                    AutomationProperties.AccessibilityView="Raw" />
+                                <TextBlock x:Name="PlaceholderTextContentPresenter"
+                                    Grid.Row="1"
+                                    Foreground="{ThemeResource TextControlPlaceholderForeground}"
+                                    Margin="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}"
+                                    Text="{TemplateBinding PlaceholderText}"
+                                    IsHitTestVisible="False" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- TextBox / NumberBox focus underline: make the focused border
+                 uniform 1px (default is 0,0,0,2 — a thicker bottom line),
+                 and pin focus / hover colors to the palette so inputs look
+                 consistent across the dialog. App-scope so the system default
+                 StaticResource lookup picks these up. Hover should NOT change
+                 background or border — only focus turns yellow. -->
+            <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#C8F135" />
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#2E2E2E" />
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#1A1A1A" />
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#1A1A1A" />
+            <!-- "Elevation" brush draws the extra-bright bottom edge on focus.
+                 Default is the system accent. Pin it transparent so the focused
+                 border is just the 1px uniform line from BorderBrushFocused. -->
+            <SolidColorBrush x:Key="TextControlElevationBorderFocusedBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlElevationBorderBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonBackground" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonBackgroundPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonBackgroundPressed" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonForeground" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonForegroundPointerOver" Color="Transparent" />
+            <SolidColorBrush x:Key="TextControlButtonForegroundPressed" Color="Transparent" />
+
+            <!-- ToggleSwitch: track grey (#2E2E2E) off / lime on, thumb dark
+                 (#0A0A0A) on both sides, no stroke. Matches web's `.switch`. -->
+            <SolidColorBrush x:Key="ToggleSwitchFillOff"                   Color="#2E2E2E" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver"        Color="#2E2E2E" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOffPressed"            Color="#2E2E2E" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOn"                    Color="#C8F135" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver"         Color="#C8F135" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed"             Color="#C8F135" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOff"                 Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver"      Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed"          Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOn"                  Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver"       Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed"           Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOff"               Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver"    Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed"        Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOn"                Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver"     Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed"         Color="#0A0A0A" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOff"             Color="Transparent" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOn"              Color="Transparent" />
+
+            <!-- CalendarView day rendering. Selected-state fill is painted
+                 per-item in TodayPage.OnCalendarDayChanging (the chrome has
+                 no SelectedBackground property — the only built-in selected
+                 indicator is a border ring, so we paint the background on
+                 the CalendarViewDayItem directly). Today reads accent text
+                 (`IsTodayHighlighted=True`), with TodayBackground transparent
+                 so it's text-only. When today *is* the selected day, the
+                 chrome's `TodaySelectedBackground` would paint over our per-
+                 item fill — so we force those Today*Selected* backgrounds to
+                 transparent and let our item fill show through, while the
+                 chrome paints the selected-today text in black.
+                 Out-of-scope days (future / blackout) read muted. -->
+            <SolidColorBrush x:Key="CalendarViewSelectedBorderBrush"           Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewSelectedHoverBorderBrush"      Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewSelectedPressedBorderBrush"    Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewSelectedForeground"            Color="#0A0A0A" />
+            <SolidColorBrush x:Key="CalendarViewSelectedHoverForeground"       Color="#0A0A0A" />
+            <SolidColorBrush x:Key="CalendarViewSelectedPressedForeground"     Color="#0A0A0A" />
+            <SolidColorBrush x:Key="CalendarViewTodayForeground"               Color="#C8F135" />
+            <SolidColorBrush x:Key="CalendarViewTodayHoverForeground"          Color="#C8F135" />
+            <SolidColorBrush x:Key="CalendarViewTodayPressedForeground"        Color="#C8F135" />
+            <SolidColorBrush x:Key="CalendarViewTodayBackground"               Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewTodayHoverBackground"          Color="#1FC8F135" />
+            <SolidColorBrush x:Key="CalendarViewTodayPressedBackground"        Color="#1FC8F135" />
+            <SolidColorBrush x:Key="CalendarViewTodaySelectedBackground"       Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewTodaySelectedHoverBackground"  Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewTodaySelectedPressedBackground" Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewTodaySelectedForeground"       Color="#0A0A0A" />
+            <SolidColorBrush x:Key="CalendarViewTodaySelectedInnerBorderBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="CalendarViewCalendarItemHoverBackground"   Color="#1FC8F135" />
+            <SolidColorBrush x:Key="CalendarViewCalendarItemPressedBackground" Color="#1FC8F135" />
+            <SolidColorBrush x:Key="CalendarViewCalendarItemHoverForeground"   Color="#C8F135" />
+            <SolidColorBrush x:Key="CalendarViewCalendarItemPressedForeground" Color="#C8F135" />
+            <SolidColorBrush x:Key="CalendarViewBlackoutForeground"            Color="#444444" />
+            <SolidColorBrush x:Key="CalendarViewOutOfScopeForeground"          Color="#444444" />
+            <!-- Kill the strikethrough line on blacked-out (future) days. The
+                 chrome reads this brush for the diagonal slash through the
+                 number; transparent makes the cell just look greyed. -->
+            <SolidColorBrush x:Key="CalendarViewBlackoutStrikethroughBrush"    Color="Transparent" />
+            <Thickness x:Key="CalendarViewDayItemStrikethroughThickness">0</Thickness>
+
+            <!--
+                Force a dark, lime-on-near-black palette regardless of system theme,
+                matching the existing web/Android apps.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#0A0A0A" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#0A0A0A" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ApplicationPageBackgroundThemeBrush" Color="#0A0A0A" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

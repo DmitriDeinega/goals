@@ -3,6 +3,7 @@ package com.goals.app.ui.goals
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,8 @@ import com.goals.app.data.models.CreateGoalRequest
 import com.goals.app.data.models.Goal
 import com.goals.app.data.models.GoalWeek
 import com.goals.app.data.models.UpdateGoalRequest
+import com.goals.app.ui.components.dashedBorder
+import com.goals.app.ui.components.rememberHoverState
 import com.goals.app.ui.theme.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -85,8 +88,17 @@ fun GoalsScreen(
                         name = data.name, type = data.type, isNegative = data.isNegative,
                         timesPerDay = if (data.type == "daily") data.timesPerDay else null,
                         timesPerWeek = if (data.type == "weekly_x") data.timesPerWeek else null,
-                        rewardRules = data.rewardRules
+                        rewardRules = data.rewardRules,
+                        version = editingGoal!!.version
                     ))
+                    // Persist enable/disable here on Save (not inline on the
+                    // switch) — matches web + Windows so Cancel doesn't leave
+                    // a half-applied toggle behind. Only fires if the user
+                    // actually changed it from the row's prior state.
+                    val priorEnabled = editingGoalWeek?.enabled ?: true
+                    if (data.enabled != priorEnabled) {
+                        onSetEnabled(editingGoal!!.id, data.enabled)
+                    }
                 } else {
                     onAddGoal(CreateGoalRequest(
                         name = data.name, type = data.type, isNegative = data.isNegative,
@@ -127,12 +139,18 @@ fun GoalsScreen(
 
         // Add button
         item {
+            val (addSource, addHovered) = rememberHoverState()
+            val addShape = RoundedCornerShape(12.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, Border2Color, RoundedCornerShape(12.dp))
+                    .clip(addShape)
+                    .dashedBorder(
+                        color = if (addHovered.value) AccentColor else Border2Color,
+                        shape = addShape
+                    )
+                    .hoverable(addSource)
                     .clickable { editingGoal = null; showForm = true }
                     .padding(vertical = 14.dp),
                 contentAlignment = Alignment.Center
@@ -142,7 +160,7 @@ fun GoalsScreen(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.08.sp,
-                    color = Text3Color,
+                    color = if (addHovered.value) AccentColor else Text3Color,
                     fontFamily = SyneFont
                 )
             }
@@ -185,13 +203,19 @@ fun GoalCard(
         else -> goal.type
     }
 
+    val (cardSource, cardHovered) = rememberHoverState()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (isDragging) Surface2Color else SurfaceColor)
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
+            .border(
+                1.dp,
+                if (cardHovered.value) AccentColor else BorderColor,
+                RoundedCornerShape(12.dp)
+            )
+            .hoverable(cardSource)
             .clickable { onClick() }
             .then(if (!isEnabled) Modifier else Modifier),
         verticalAlignment = Alignment.CenterVertically

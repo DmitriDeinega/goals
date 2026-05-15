@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Goals_Windows.Views.TodayPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:vm="using:Goals_Windows.ViewModels"
+    xmlns:c="using:Goals_Windows.Controls"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{StaticResource GoalsBgBrush}"
+    mc:Ignorable="d">
+
+    <Grid Padding="20,8,20,0" RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <InfoBar
+            Grid.Row="0"
+            IsOpen="{x:Bind ViewModel.ShowLoadingBar, Mode=OneWay}"
+            IsClosable="False"
+            Severity="Informational"
+            Title="Loading"
+            Message="Connecting to backend…"
+            Margin="0,0,0,8" />
+
+        <!-- Date "input": date label opens a CalendarView Flyout (web has a
+             custom DatePicker on click). Hover shifts the border to accent;
+             cursor flips to Hand. Surface2 background + border2 outline so
+             this reads as an input field, matching `.dp-input` on web. -->
+        <Border
+            x:Name="DateInputBorder"
+            Grid.Row="1"
+            Margin="0,8,0,8"
+            Background="{StaticResource GoalsSurface2Brush}"
+            BorderBrush="{StaticResource GoalsBorder2Brush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource GoalsRadiusSm}"
+            Loaded="OnDateInputLoaded"
+            Tapped="OnDateInputTapped">
+            <FlyoutBase.AttachedFlyout>
+                <Flyout x:Name="DateFlyout" Placement="Bottom" Opened="OnDateFlyoutOpened">
+                    <!-- Brush properties on CalendarView itself (CLR props,
+                         not theme keys) — the default style doesn't bind
+                         these from `CalendarViewSelected*` theme resources,
+                         so App-scope overrides don't apply. -->
+                    <!-- Hover gets NO border ring — just lime text on a
+                         lime-dim ground. Selected = solid lime ring (the
+                         chrome doesn't have a public "background" prop, so
+                         the lime ring IS the selected indicator). Theme
+                         resources for hover/pressed text are at App.xaml. -->
+                    <CalendarView
+                        x:Name="DateCalendar"
+                        SelectionMode="Single"
+                        IsTodayHighlighted="True"
+                        IsOutOfScopeEnabled="True"
+                        IsGroupLabelVisible="False"
+                        FirstDayOfWeek="Sunday"
+                        CalendarViewDayItemChanging="OnCalendarDayChanging"
+                        SelectedDatesChanged="OnCalendarDateSelected"
+                        SelectedBorderBrush="Transparent"
+                        SelectedHoverBorderBrush="Transparent"
+                        SelectedPressedBorderBrush="Transparent"
+                        SelectedForeground="#0A0A0A"
+                        SelectedHoverForeground="#0A0A0A"
+                        SelectedPressedForeground="#0A0A0A"
+                        HoverBorderBrush="Transparent"
+                        PressedBorderBrush="Transparent"
+                        PressedForeground="#C8F135"
+                        BlackoutForeground="#444444"
+                        OutOfScopeForeground="#444444" />
+                </Flyout>
+            </FlyoutBase.AttachedFlyout>
+            <Grid Padding="12,4,4,4" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    Text="{x:Bind ViewModel.SelectedDateLabel, Mode=OneWay}"
+                    FontFamily="Consolas"
+                    FontSize="13"
+                    VerticalAlignment="Center"
+                    IsHitTestVisible="False"
+                    Foreground="{StaticResource GoalsTextBrush}" />
+                <!-- Today icon: matches the input's surface, no border. Hover
+                     scales 1.1× and forces the glyph to lime (so even the
+                     "already on today" grey state hints clickability on hover). -->
+                <Button
+                    x:Name="TodayBtn"
+                    Grid.Column="1"
+                    Width="40"
+                    Height="40"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Command="{x:Bind ViewModel.GoTodayCommand}"
+                    Loaded="OnTodayBtnLoaded"
+                    PointerEntered="OnTodayBtnPointerEntered"
+                    PointerExited="OnTodayBtnPointerExited"
+                    ToolTipService.ToolTip="Today">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackgroundPointerOver"  Color="Transparent" />
+                        <SolidColorBrush x:Key="ButtonBackgroundPressed"      Color="Transparent" />
+                        <SolidColorBrush x:Key="ButtonBackgroundDisabled"     Color="Transparent" />
+                        <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+                        <SolidColorBrush x:Key="ButtonBorderBrushPressed"     Color="Transparent" />
+                        <SolidColorBrush x:Key="ButtonBorderBrushDisabled"    Color="Transparent" />
+                    </Button.Resources>
+                    <TextBlock
+                        x:Name="TodayIconGlyph"
+                        Text="⌂"
+                        FontSize="20"
+                        Foreground="{x:Bind ViewModel.TodayIconForeground, Mode=OneWay}" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- WeekStrip: chevrons + 7 day cells. -->
+        <Grid Grid.Row="2" Margin="0,4,0,4" ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button
+                Style="{StaticResource WeekNavButtonStyle}"
+                Command="{x:Bind ViewModel.PrevWeekCommand}"
+                IsEnabled="{x:Bind ViewModel.CanGoPrevWeek, Mode=OneWay}"
+                Loaded="OnChevronLoaded"
+                Content="‹" />
+            <ItemsRepeater
+                Grid.Column="1"
+                HorizontalAlignment="Stretch"
+                ItemsSource="{x:Bind ViewModel.WeekDays}">
+                <ItemsRepeater.Layout>
+                    <UniformGridLayout
+                        Orientation="Horizontal"
+                        MaximumRowsOrColumns="7"
+                        MinItemWidth="10"
+                        MinItemHeight="56"
+                        MinColumnSpacing="4"
+                        MinRowSpacing="0"
+                        ItemsStretch="Fill" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DayCellViewModel">
+                        <!-- Border + Tapped: Button's VSM has a press scale
+                             animation that reads as text "growing" after
+                             click. ItemsRepeater doesn't propagate DataContext
+                             to template roots, so we stash the VM in Tag and
+                             read from there. Hand cursor is applied on
+                             Loaded via CursorHelper.SetHand. -->
+                        <Border
+                            Tag="{x:Bind}"
+                            Background="{x:Bind BackgroundBrush, Mode=OneWay}"
+                            BorderBrush="{x:Bind BorderBrushColor, Mode=OneWay}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource GoalsRadiusSm}"
+                            Height="56"
+                            HorizontalAlignment="Stretch"
+                            Opacity="{x:Bind Opacity, Mode=OneWay}"
+                            Loaded="OnDayLoaded"
+                            Tapped="OnDayTapped">
+                            <StackPanel Spacing="3" VerticalAlignment="Center">
+                                <TextBlock
+                                    Text="{x:Bind DayName, Mode=OneWay}"
+                                    HorizontalAlignment="Center"
+                                    FontSize="9"
+                                    FontWeight="Bold"
+                                    Foreground="{x:Bind NameBrush, Mode=OneWay}" />
+                                <TextBlock
+                                    Text="{x:Bind DayNumber, Mode=OneWay}"
+                                    HorizontalAlignment="Center"
+                                    FontFamily="Consolas"
+                                    FontSize="16"
+                                    Foreground="{x:Bind NumberBrush, Mode=OneWay}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+            <Button
+                Grid.Column="2"
+                Style="{StaticResource WeekNavButtonStyle}"
+                Command="{x:Bind ViewModel.NextWeekCommand}"
+                IsEnabled="{x:Bind ViewModel.CanGoNextWeek, Mode=OneWay}"
+                Loaded="OnChevronLoaded"
+                Content="›" />
+        </Grid>
+
+        <!-- Week summary: title + earned on one fixed-height row, then a custom
+             progress bar (anchored left so it shrinks from the right only —
+             WinUI's built-in ProgressBar animates the fill from both sides). -->
+        <StackPanel Grid.Row="3" Spacing="6" Margin="0,12,0,0">
+            <Grid Height="20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    Text="{x:Bind ViewModel.WeekSummaryLabel, Mode=OneWay}"
+                    FontSize="10"
+                    FontWeight="Bold"
+                    Foreground="{StaticResource GoalsText3Brush}"
+                    VerticalAlignment="Center"
+                    CharacterSpacing="100" />
+                <TextBlock
+                    Grid.Column="1"
+                    Text="{x:Bind ViewModel.WeekEarnedText, Mode=OneWay}"
+                    FontFamily="Consolas"
+                    FontSize="13"
+                    FontWeight="SemiBold"
+                    VerticalAlignment="Center"
+                    Foreground="{StaticResource GoalsAccentBrush}" />
+            </Grid>
+            <Grid x:Name="ProgressBg" Height="4" Background="{StaticResource GoalsBorder2Brush}" CornerRadius="2" SizeChanged="OnProgressSizeChanged">
+                <Border x:Name="ProgressFill"
+                        Background="{StaticResource GoalsAccentBrush}"
+                        CornerRadius="2"
+                        HorizontalAlignment="Left" />
+            </Grid>
+        </StackPanel>
+
+        <TextBlock
+            Grid.Row="4"
+            Text="No goals were tracked this week."
+            Visibility="{x:Bind ViewModel.ShowEmptyState, Mode=OneWay}"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Margin="0,40,0,0"
+            FontSize="13"
+            Foreground="{StaticResource GoalsText2Brush}" />
+
+        <!-- Scrollable goal rows. No top margin so the first row sits flush
+             against the progress bar and content scrolls under it cleanly. -->
+        <ScrollViewer
+            Grid.Row="4"
+            HorizontalScrollMode="Disabled"
+            VerticalScrollBarVisibility="Hidden">
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Rows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:GoalRowViewModel">
+                        <Grid Padding="0,12,0,12" ColumnSpacing="10" BorderBrush="{StaticResource GoalsBorderBrush}" BorderThickness="0,0,0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" MinWidth="20" />
+                                <ColumnDefinition Width="Auto" MinWidth="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock
+                                Text="{x:Bind EarnedText, Mode=OneWay}"
+                                VerticalAlignment="Center"
+                                FontFamily="Consolas"
+                                FontSize="11"
+                                FontWeight="SemiBold"
+                                Foreground="{StaticResource GoalsAccentBrush}" />
+
+                            <TextBlock
+                                Grid.Column="1"
+                                Text="{x:Bind ProgressText, Mode=OneWay}"
+                                VerticalAlignment="Center"
+                                TextAlignment="Right"
+                                FontFamily="Consolas"
+                                FontSize="11"
+                                Foreground="{StaticResource GoalsText3Brush}" />
+
+                            <StackPanel
+                                Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="6"
+                                VerticalAlignment="Center">
+                                <TextBlock
+                                    Text="{x:Bind Name, Mode=OneWay}"
+                                    FontSize="14"
+                                    FontWeight="SemiBold"
+                                    Foreground="{StaticResource GoalsTextBrush}"
+                                    VerticalAlignment="Center" />
+                                <Border
+                                    Style="{StaticResource AvoidTagStyle}"
+                                    Visibility="{x:Bind NegativeTagVisibility, Mode=OneWay}">
+                                    <TextBlock
+                                        Text="avoid"
+                                        FontSize="9"
+                                        FontWeight="Bold"
+                                        CharacterSpacing="100"
+                                        Foreground="{StaticResource GoalsRedBrush}" />
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Margin gives the rightmost slot room to scale
+                                 on hover without getting clipped by the row /
+                                 page bounds. -->
+                            <ItemsControl
+                                Grid.Column="3"
+                                ItemsSource="{x:Bind Slots}"
+                                VerticalAlignment="Center"
+                                Margin="2,2,4,2">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="5" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SlotViewModel">
+                                        <!-- Border + Tapped instead of Button.
+                                             Button's VSM PointerOver state paints
+                                             over my code-behind hover and creates
+                                             the lingering-hover bug after click.
+                                             Border has no VSM. Hand cursor is
+                                             applied on Loaded via CursorHelper. -->
+                                        <Border
+                                            Tag="{x:Bind}"
+                                            Width="36"
+                                            Height="36"
+                                            BorderThickness="2"
+                                            CornerRadius="18"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Background="{x:Bind BackgroundBrush, Mode=OneWay}"
+                                            BorderBrush="{x:Bind BorderBrushColor, Mode=OneWay}"
+                                            Opacity="{x:Bind ButtonOpacity, Mode=OneWay}"
+                                            Loaded="OnSlotLoaded"
+                                            PointerEntered="OnSlotPointerEntered"
+                                            PointerExited="OnSlotPointerExited"
+                                            Tapped="OnSlotTapped">
+                                            <!-- IsHitTestVisible=False so the
+                                                 parent Border's Hand cursor
+                                                 wins when the pointer is over
+                                                 the icon (was reverting to
+                                                 default arrow when filled). -->
+                                            <TextBlock
+                                                Text="{x:Bind IconText, Mode=OneWay}"
+                                                FontSize="16"
+                                                FontWeight="Bold"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                IsHitTestVisible="False"
+                                                Foreground="{x:Bind IconBrush, Mode=OneWay}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</Page>

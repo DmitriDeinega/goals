@@ -1,9 +1,11 @@
 package com.goals.app.ui.goals
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,12 +21,15 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.goals.app.data.models.*
+import com.goals.app.ui.components.dashedBorder
+import com.goals.app.ui.components.rememberHoverState
 import com.goals.app.ui.theme.*
 
 private fun validateForm(
@@ -174,27 +179,33 @@ fun GoalFormSheet(
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         if (isEdit && onDelete != null) {
+                            val (deleteSource, deleteHovered) = rememberHoverState()
                             Text(
                                 text = "Delete",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = RedColor,
+                                color = RedColor.copy(alpha = if (deleteHovered.value) 1f else 0.7f),
                                 fontFamily = SyneFont,
-                                modifier = Modifier.clickable { showDeleteConfirm = true }.padding(4.dp)
+                                modifier = Modifier
+                                    .hoverable(deleteSource)
+                                    .clickable { showDeleteConfirm = true }
+                                    .padding(4.dp)
                             )
                         }
                         if (isEdit && onSetEnabled != null) {
+                            // Local state only — actual persistence happens on
+                            // Save below (matches web + Windows). Previously we
+                            // called onSetEnabled inline which meant a Cancel
+                            // would still leave the toggle persisted, an
+                            // inconsistency with the other two clients.
                             GoalSwitch(
                                 checked = enabled,
-                                onCheckedChange = { newVal -> enabled = newVal; onSetEnabled(newVal) }
+                                onCheckedChange = { newVal -> enabled = newVal }
                             )
                         }
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Text3Color,
-                            modifier = Modifier.size(20.dp).clickable { animatedDismiss() }
-                        )
+                        // Web + Windows have no top-right close; Android keeps
+                        // its natural sheet behaviors (drag-to-dismiss + tap
+                        // outside) so the explicit X is redundant.
                     }
                 }
 
@@ -276,7 +287,7 @@ fun GoalFormSheet(
                 Spacer(Modifier.height(16.dp))
 
                 val maxCompletions = if (type == "weekly_x") (timesPerWeek.toIntOrNull() ?: 7) else 7
-                FormField(label = "REWARD RULES") {
+                FormField(label = "REWARD RULES", optional = true) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         rewardRules.forEachIndexed { index, rule ->
                             Row(
@@ -310,25 +321,45 @@ fun GoalFormSheet(
                                     shape = RoundedCornerShape(8.dp),
                                     singleLine = true
                                 )
+                                val (removeSource, removeHovered) = rememberHoverState()
                                 IconButton(
                                     onClick = { rewardRules = rewardRules.filterIndexed { i, _ -> i != index } },
-                                    modifier = Modifier.size(32.dp)
+                                    interactionSource = removeSource,
+                                    modifier = Modifier.size(32.dp).hoverable(removeSource)
                                 ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Remove rule", tint = Text3Color, modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove rule",
+                                        tint = if (removeHovered.value) RedColor else Text3Color,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }
 
+                        val (addRuleSource, addRuleHovered) = rememberHoverState()
+                        val addRuleShape = RoundedCornerShape(8.dp)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, Border2Color, RoundedCornerShape(8.dp))
+                                .clip(addRuleShape)
+                                .dashedBorder(
+                                    color = if (addRuleHovered.value) AccentColor else Border2Color,
+                                    shape = addRuleShape
+                                )
+                                .hoverable(addRuleSource)
                                 .clickable { rewardRules = rewardRules + RuleEntry("", "") }
                                 .padding(vertical = 8.dp, horizontal = 14.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("+ ADD RULE", fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.08.sp, color = Text3Color, fontFamily = SyneFont)
+                            Text(
+                                "+ ADD RULE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.08.sp,
+                                color = if (addRuleHovered.value) AccentColor else Text3Color,
+                                fontFamily = SyneFont
+                            )
                         }
                     }
                 }
@@ -336,16 +367,34 @@ fun GoalFormSheet(
                 Spacer(Modifier.height(24.dp))
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val (cancelSource, cancelHovered) = rememberHoverState()
+                    val (saveSource, saveHovered) = rememberHoverState()
+                    val saveFontSize by animateFloatAsState(
+                        targetValue = if (saveHovered.value) 14f else 13f,
+                        label = "saveFontSize"
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Border2Color, RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                if (cancelHovered.value) AccentColor else Border2Color,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .hoverable(cancelSource)
                             .clickable { animatedDismiss() }
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("CANCEL", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.08.sp, color = Text2Color, fontFamily = SyneFont)
+                        Text(
+                            "CANCEL",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.08.sp,
+                            color = if (cancelHovered.value) AccentColor else Text2Color,
+                            fontFamily = SyneFont
+                        )
                     }
 
                     Box(
@@ -353,6 +402,7 @@ fun GoalFormSheet(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(AccentColor)
+                            .hoverable(saveSource)
                             .clickable {
                                 val error = validateForm(
                                     name = name,
@@ -385,7 +435,14 @@ fun GoalFormSheet(
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("SAVE", fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.08.sp, color = BgColor, fontFamily = SyneFont)
+                        Text(
+                            "SAVE",
+                            fontSize = saveFontSize.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.08.sp,
+                            color = BgColor,
+                            fontFamily = SyneFont
+                        )
                     }
                 }
             }
@@ -418,28 +475,43 @@ fun GoalFormSheet(
 }
 
 @Composable
-private fun FormField(label: String, content: @Composable () -> Unit) {
+private fun FormField(label: String, optional: Boolean = false, content: @Composable () -> Unit) {
     Column {
-        Text(
-            text = label,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.15.sp,
-            color = Text3Color,
-            fontFamily = SyneFont,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Row(modifier = Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.15.sp,
+                color = Text3Color,
+                fontFamily = SyneFont
+            )
+            if (optional) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "(optional)",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Normal,
+                    letterSpacing = 0.05.sp,
+                    color = Text3Color,
+                    fontFamily = SyneFont
+                )
+            }
+        }
         content()
     }
 }
 
 @Composable
 private fun TypeOption(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val (source, hovered) = rememberHoverState()
+    val highlight = selected || hovered.value
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) AccentDim else Color.Transparent)
-            .border(1.dp, if (selected) AccentColor else Border2Color, RoundedCornerShape(8.dp))
+            .border(1.dp, if (highlight) AccentColor else Border2Color, RoundedCornerShape(8.dp))
+            .hoverable(source)
             .clickable { onClick() }
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center
@@ -449,7 +521,7 @@ private fun TypeOption(label: String, selected: Boolean, onClick: () -> Unit, mo
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.06.sp,
-            color = if (selected) AccentColor else Text2Color,
+            color = if (highlight) AccentColor else Text2Color,
             fontFamily = SyneFont
         )
     }
@@ -457,9 +529,19 @@ private fun TypeOption(label: String, selected: Boolean, onClick: () -> Unit, mo
 
 @Composable
 fun GoalSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    // Mirror web behavior: thumb scales up on pointer hover (the web tweaks the
+    // ::after pseudo-element's width/height; on Compose we approximate by
+    // scaling the whole switch a touch — it tracks the same affordance).
+    val (source, hovered) = rememberHoverState()
+    val scale by animateFloatAsState(
+        targetValue = if (hovered.value) 1.12f else 1f,
+        label = "switchScale"
+    )
     Switch(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        interactionSource = source,
+        modifier = Modifier.hoverable(source).scale(scale),
         colors = SwitchDefaults.colors(
             checkedThumbColor = BgColor,
             checkedTrackColor = AccentColor,

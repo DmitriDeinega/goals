@@ -180,6 +180,11 @@ class AppViewModel @Inject constructor(
     private val gson = Gson()
     private var sseJob: Job? = null
     private var sseRetryDelay = 1000L
+    // Set true while a gap-triggered resync is in flight so further SSE events
+    // are dropped instead of advancing `lastSeq` past the soon-to-be-fetched
+    // baseline. Matches the resync-on-gap behavior in web (useEvents.js) and
+    // Windows (GoalsSseService.HydrateInitialAsync).
+    @Volatile private var resyncing: Boolean = false
 
     init {
         viewModelScope.launch(Dispatchers.IO) { sessions.appSessionId() }
@@ -362,7 +367,11 @@ class AppViewModel @Inject constructor(
     }
 
     fun reorder(orderedIds: List<String>) {
-        // Optimistic update
+        // Snapshot prior state for rollback if the server rejects the reorder
+        // (previously we fired-and-forgot, leaving the UI silently diverged
+        // from the backend on any 409/network failure).
+        val priorGoals = _uiState.value.goals
+        val priorWeeks = _uiState.value.week.goalWeeks
         _uiState.update { state ->
             val updatedGoals = state.goals.map { g ->
                 val newOrder = orderedIds.indexOf(g.id)
@@ -376,7 +385,24 @@ class AppViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val items = orderedIds.mapIndexed { index, goalId -> ReorderItem(goalId, index) }
-            repository.reorderGoals(items)
+            when (val result = repository.reorderGoals(items)) {
+                is ApiResult.Success -> { /* SSE will confirm; optimistic state stands */ }
+                is ApiResult.Error -> {
+                    // 409 means another client moved meanwhile — fetch authoritative
+                    // state. Other failures (network, 5xx): restore prior order.
+                    if (result.code == 409) {
+                        loadData()
+                    } else {
+                        _uiState.update { state ->
+                            state.copy(
+                                goals = priorGoals,
+                                week = state.week.copy(goalWeeks = priorWeeks)
+                            )
+                        }
+                        showToast("Reorder failed: ${result.message}")
+                    }
+                }
+            }
         }
     }
 
@@ -533,6 +559,7 @@ class AppViewModel @Inject constructor(
     }
 
     private fun checkSeq(incomingSeq: Long): Boolean {
+        if (resyncing) return false  // already fetching authoritative state
         return when {
             incomingSeq == lastSeq + 1 -> true  // expected
             incomingSeq <= lastSeq -> {
@@ -540,10 +567,21 @@ class AppViewModel @Inject constructor(
                 false  // duplicate/old, ignore
             }
             else -> {
-                // Skipped ahead — widget or another device acted without us knowing
-                // Just accept it rather than reload-looping
-                Log.w("SSE", "Seq gap: expected ${lastSeq + 1}, got $incomingSeq — accepting")
-                true
+                // Gap: another device (or our own widget) acted while our SSE
+                // stream was paused/lossy. Previously we just accepted the
+                // event and advanced lastSeq, which left us missing whatever
+                // events filled the gap (deletions, reorders, etc.). Now we
+                // mirror web + Windows and trigger a full resync.
+                Log.w("SSE", "Seq gap: expected ${lastSeq + 1}, got $incomingSeq — resyncing")
+                resyncing = true
+                viewModelScope.launch {
+                    try {
+                        loadData()
+                    } finally {
+                        resyncing = false  // loadData re-seeds lastSeq via /api/init
+                    }
+                }
+                false
             }
         }
     }

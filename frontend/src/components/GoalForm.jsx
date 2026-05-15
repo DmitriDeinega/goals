@@ -100,8 +100,12 @@ export default function GoalForm({ goal, onSave, onClose, onSetEnabled, onDelete
       is_negative: form.is_negative,
       times_per_week: form.type === 'weekly_x' ? (parseInt(form.times_per_week, 10) || 1) : null,
       times_per_day: form.type === 'daily' ? (parseInt(form.times_per_day, 10) || 1) : null,
+      // No `|| 1` / `|| 0` fallback here — `validate()` already rejects 0
+      // or blank, so a leaking 0 should never reach this map. The fallback
+      // was silently coercing user-entered 0 to 1, diverging from the
+      // Windows/Android validators that block save on the same input.
       reward_rules: [...form.reward_rules]
-        .map(r => ({ min_completions: parseInt(r.min_completions, 10) || 1, reward_amount: parseFloat(r.reward_amount) || 0 }))
+        .map(r => ({ min_completions: parseInt(r.min_completions, 10), reward_amount: parseFloat(r.reward_amount) }))
         .sort((a, b) => a.min_completions - b.min_completions),
     })
   }

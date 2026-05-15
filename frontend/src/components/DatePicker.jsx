@@ -100,10 +100,11 @@ export default function DatePicker({ value, onChange, placeholder = 'Pick date',
               const ds = d.format('YYYY-MM-DD')
               const isSel = selected && ds === selected.format('YYYY-MM-DD')
               const dis = isDisabled(d)
+              const isToday = ds === dayjs().format('YYYY-MM-DD')
               return (
                 <button
                   key={ds}
-                  className={`dp-day ${isSel ? 'sel' : ''} ${dis ? 'dis' : ''}`}
+                  className={`dp-day ${isSel ? 'sel' : ''} ${dis ? 'dis' : ''} ${isToday ? 'today' : ''}`}
                   onClick={() => !dis && select(ds)}
                   disabled={dis}
                 >

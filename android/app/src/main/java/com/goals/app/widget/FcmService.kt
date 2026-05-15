@@ -8,6 +8,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.goals.app.data.models.DayChangedPayload
+import com.goals.app.data.models.GoalChangedPayload
 import com.goals.app.data.models.LogChangedPayload
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -33,17 +35,58 @@ class FcmService : FirebaseMessagingService() {
     }
 
     private fun tryApplyLocally(event: String?, payload: String): Boolean {
-        if (event != "log_changed") return false
         return try {
-            val data = Gson().fromJson(payload, LogChangedPayload::class.java) ?: return false
             val cache = EntryPointAccessors.fromApplication(
                 applicationContext,
                 WidgetProviderEntryPoint::class.java
             ).cache()
             runBlocking { cache.hydrate() }
-            cache.applyAuthoritativeLogs(data.goalId, data.logs, data.seq)
-            cache.markFcmReceived()
-            true
+            val gson = Gson()
+            val applied = when (event) {
+                "log_changed" -> {
+                    val data = gson.fromJson(payload, LogChangedPayload::class.java) ?: return false
+                    cache.applyAuthoritativeLogs(data.goalId, data.logs, data.seq)
+                    true
+                }
+                "goal_changed" -> {
+                    // Payload may be a single GoalChangedPayload or an array
+                    // (reorder batch). Try array first, fall back to single.
+                    val trimmed = payload.trimStart()
+                    if (trimmed.startsWith("[")) {
+                        val list = gson.fromJson(
+                            payload,
+                            Array<GoalChangedPayload>::class.java
+                        ) ?: return false
+                        list.all { cache.applyGoalChanged(
+                            action = it.action,
+                            seq = it.seq,
+                            goal = it.goal,
+                            goalId = it.goalId,
+                            goalWeek = it.goalWeek,
+                            logs = it.logs,
+                            reorderedGoals = it.reorderedGoals
+                        ) }
+                    } else {
+                        val data = gson.fromJson(payload, GoalChangedPayload::class.java) ?: return false
+                        cache.applyGoalChanged(
+                            action = data.action,
+                            seq = data.seq,
+                            goal = data.goal,
+                            goalId = data.goalId,
+                            goalWeek = data.goalWeek,
+                            logs = data.logs,
+                            reorderedGoals = data.reorderedGoals
+                        )
+                    }
+                }
+                "day_changed" -> {
+                    val data = gson.fromJson(payload, DayChangedPayload::class.java) ?: return false
+                    cache.applyDayChanged(data.date, data.logs, data.seq)
+                }
+                else -> return false
+            }
+            if (applied) cache.markFcmReceived()
+            applied
         } catch (e: Exception) {
             Log.w(TAG, "Local apply failed: ${e.message}")
             false

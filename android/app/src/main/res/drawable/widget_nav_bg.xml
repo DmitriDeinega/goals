@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default background for week-nav arrows (‹ ›) in the widget header. Invisible
+  at rest; accent border on stylus/mouse hover. Renderer skips this drawable
+  for disabled arrows (canGoPrev/canGoNext = false) so they don't look
+  interactive.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_hovered="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <stroke android:width="1dp" android:color="@color/widget_accent" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</selector>

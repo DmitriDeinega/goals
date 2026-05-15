@@ -111,6 +111,10 @@ object WidgetRenderer {
                 val bgRes = when {
                     on && isNegative -> R.drawable.widget_btn_bg_red
                     on -> R.drawable.widget_btn_bg_accent
+                    // Empty: hover preview should match what the click DOES —
+                    // accent for a positive (becomes ✓), red for a negative
+                    // (becomes ✗). Same drawable visually when not hovered.
+                    isNegative -> R.drawable.widget_btn_bg_surface_neg
                     else -> R.drawable.widget_btn_bg_surface
                 }
                 val iconRes = when {
@@ -165,10 +169,11 @@ object WidgetRenderer {
             selectedDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale.ENGLISH))
         )
         val isToday = selected == today
-        rv.setInt(
+        // today_button is now an ImageView (see widget_header_item.xml). The
+        // accent variant has a hover-grows inset; the dim variant doesn't.
+        rv.setImageViewResource(
             R.id.today_button,
-            "setTextColor",
-            if (isToday) COLOR_TEXT_DIM else COLOR_ACCENT
+            if (isToday) R.drawable.widget_today_dim_state else R.drawable.widget_today_accent_state
         )
 
         rv.setTextViewText(R.id.header_label, "THIS WEEK · $pct%")
@@ -192,6 +197,13 @@ object WidgetRenderer {
             "setTextColor",
             if (canGoNext) COLOR_TEXT_SECONDARY else COLOR_TEXT_DIM
         )
+        // Hover background — only when enabled, else the arrow looks
+        // interactive on hover but does nothing.
+        rv.setInt(
+            R.id.nav_next,
+            "setBackgroundResource",
+            if (canGoNext) R.drawable.widget_nav_bg else 0
+        )
         val canGoPrev = WidgetDates.prevSelectedDate(
             selected,
             snapshot.settings?.firstDayOfWeek,
@@ -201,6 +213,11 @@ object WidgetRenderer {
             R.id.nav_prev,
             "setTextColor",
             if (canGoPrev) COLOR_TEXT_SECONDARY else COLOR_TEXT_DIM
+        )
+        rv.setInt(
+            R.id.nav_prev,
+            "setBackgroundResource",
+            if (canGoPrev) R.drawable.widget_nav_bg else 0
         )
     }
 
@@ -238,7 +255,13 @@ object WidgetRenderer {
             rv.setInt(
                 dayCellIds[i],
                 "setBackgroundResource",
-                if (isSelected) R.drawable.widget_day_selected else 0
+                when {
+                    isSelected -> R.drawable.widget_day_selected
+                    // Future days have no click action — skip the hover-aware
+                    // drawable so they don't look interactive on stylus hover.
+                    isFuture   -> 0
+                    else       -> R.drawable.widget_day_bg
+                }
             )
         }
     }

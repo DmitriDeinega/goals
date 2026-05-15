@@ -101,7 +101,11 @@ data class UpdateGoalRequest(
     @SerializedName("is_negative") val isNegative: Boolean,
     @SerializedName("times_per_day") val timesPerDay: Int?,
     @SerializedName("times_per_week") val timesPerWeek: Int?,
-    @SerializedName("reward_rules") val rewardRules: List<RewardRule>
+    @SerializedName("reward_rules") val rewardRules: List<RewardRule>,
+    // Optimistic-locking handshake. Server compares this against goal.version;
+    // mismatch returns 409 so a stale edit from another device can't clobber
+    // a newer one. Web and Windows already send this — Android was the holdout.
+    val version: Int
 )
 
 data class ToggleSlotRequest(

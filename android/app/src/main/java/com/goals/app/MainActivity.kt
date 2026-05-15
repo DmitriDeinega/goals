@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -27,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.goals.app.ui.components.ToastOverlay
+import com.goals.app.ui.components.rememberHoverState
 import com.goals.app.ui.goals.GoalsScreen
 import com.goals.app.ui.theme.*
 import com.goals.app.ui.today.TodayScreen
@@ -255,8 +257,10 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
 
 @Composable
 private fun TabItem(label: String, isActive: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val (source, hovered) = rememberHoverState()
     Box(
         modifier = modifier
+            .hoverable(source)
             .clickable { onClick() }
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
@@ -267,7 +271,7 @@ private fun TabItem(label: String, isActive: Boolean, onClick: () -> Unit, modif
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.08.sp,
-                color = if (isActive) TextColor else Text3Color,
+                color = if (isActive) TextColor else if (hovered.value) TextColor else Text3Color,
                 fontFamily = SyneFont
             )
             if (isActive) {

@@ -5,7 +5,7 @@ from ..database import get_db
 from ..models import GoalCreate, GoalUpdate, GoalOut, GoalWeekOut, GoalChangedPayload, LogOut
 from ..time_utils import get_today, get_week_start, get_week_end
 from ..broadcaster import broadcast
-from ..sequence import increment_sequence, get_sequence
+from ..sequence import consume_client_seq
 from .logs import get_goal_week_logs, ensure_slots_for_goal, reconcile_slots_for_goal
 
 router = APIRouter()
@@ -44,18 +44,6 @@ def goal_week_from_doc(doc) -> GoalWeekOut:
     )
 
 
-async def validate_client_seq(request: Request):
-    client_seq = request.headers.get("X-Sequence")
-    if client_seq is not None:
-        try:
-            parsed = int(client_seq)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid X-Sequence header")
-        current_seq = await get_sequence()
-        if parsed != current_seq:
-            raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
-
-
 @router.get("/", response_model=list[GoalOut])
 async def get_goals():
     try:
@@ -76,7 +64,9 @@ async def get_goals():
 async def create_goal(goal: GoalCreate, request: Request):
     try:
         db = get_db()
-        await validate_client_seq(request)
+        # Atomic CAS: validates X-Sequence and reserves the next seq in one
+        # round-trip. Returns the new seq for the broadcast payload below.
+        seq = await consume_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
@@ -121,7 +111,6 @@ async def create_goal(goal: GoalCreate, request: Request):
 
         goal_week_doc = await db.goal_weeks.find_one({"goal_id": gid, "week_start": week_start})
         goal_logs = await get_goal_week_logs(db, gid, week_start, week_end)
-        seq = await increment_sequence()
 
         payload = GoalChangedPayload(
             action="created",
@@ -147,7 +136,7 @@ async def create_goal(goal: GoalCreate, request: Request):
 async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
     try:
         db = get_db()
-        await validate_client_seq(request)
+        seq = await consume_client_seq(request)
 
         current = await db.goals.find_one({"_id": ObjectId(goal_id)})
         if not current:
@@ -260,7 +249,6 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
 
         goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
         goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
-        seq = await increment_sequence()
 
         payload = GoalChangedPayload(
             action="updated",
@@ -286,7 +274,7 @@ async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
 async def delete_goal(goal_id: str, request: Request):
     try:
         db = get_db()
-        await validate_client_seq(request)
+        seq = await consume_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         today = get_today(tz)
         week_start = get_week_start(today, first_day)
@@ -312,7 +300,6 @@ async def delete_goal(goal_id: str, request: Request):
                 )
             reordered_goals.append({"goal_id": gid, "new_order": i})
 
-        seq = await increment_sequence()
         payload = GoalChangedPayload(
             action="deleted",
             goal_id=goal_id,
@@ -336,7 +323,7 @@ async def delete_goal(goal_id: str, request: Request):
 async def reorder_goals(body: list[dict], request: Request):
     try:
         db = get_db()
-        await validate_client_seq(request)
+        seq = await consume_client_seq(request)
         tz, first_day = await get_settings_cached(db)
         week_start = get_week_start(get_today(tz), first_day)
 
@@ -354,12 +341,8 @@ async def reorder_goals(body: list[dict], request: Request):
                 goal_id=gid,
                 new_order=new_order,
                 week_start=week_start,
-                seq=0,  # filled below
+                seq=seq,
             ))
-
-        seq = await increment_sequence()
-        for p in payloads:
-            p.seq = seq
 
         session_id = request.headers.get("X-Session-ID")
         await broadcast("goal_changed", [p.model_dump() for p in payloads], exclude_session=session_id)
