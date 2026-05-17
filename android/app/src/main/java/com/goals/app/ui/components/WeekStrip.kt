@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.goals.app.getWeekStart
 import com.goals.app.ui.theme.*
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -34,17 +35,20 @@ import java.util.Locale
 
 @Composable
 fun WeekStrip(
-    weekStart: String,
     selectedDate: String,
     today: String,
     startDate: String?,
+    firstDay: String,
     onDaySelected: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val fmt = DateTimeFormatter.ISO_LOCAL_DATE
-    val weekStartDate = LocalDate.parse(weekStart, fmt)
+    // Derive from selectedDate so the strip flips weeks immediately on
+    // prev/next, without waiting for the parent's gated weekStart (which
+    // stays on the old week until that week's data finishes loading).
+    val weekStartDate = LocalDate.parse(getWeekStart(selectedDate, firstDay), fmt)
     val todayDate = LocalDate.parse(today, fmt)
     val minDate = startDate?.let { LocalDate.parse(it, fmt) }
 

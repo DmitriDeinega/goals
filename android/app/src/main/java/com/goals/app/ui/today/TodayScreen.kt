@@ -57,10 +57,10 @@ fun TodayScreen(
         item {
             Spacer(Modifier.height(12.dp))
             WeekStrip(
-                weekStart = weekStart,
                 selectedDate = selectedDate,
                 today = today,
                 startDate = settings?.startDate,
+                firstDay = settings?.firstDayOfWeek ?: "sunday",
                 onDaySelected = onDaySelected,
                 onPrevWeek = onPrevWeek,
                 onNextWeek = onNextWeek
