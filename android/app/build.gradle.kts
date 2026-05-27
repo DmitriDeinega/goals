@@ -36,7 +36,7 @@ android {
         }
         create("prod") {
             dimension = "env"
-            buildConfigField("String", "SERVER_URL", "\"http://63.181.3.204:2200/\"")
+            buildConfigField("String", "SERVER_URL", "\"https://goals.63-181-3-204.sslip.io/\"")
         }
     }
 

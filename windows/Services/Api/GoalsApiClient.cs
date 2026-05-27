@@ -30,7 +30,7 @@ public sealed class GoalsApiClient : IDisposable
     public const string BaseUrl = "http://localhost:2200";
     public const string AppTitle = "GOALS DEV";
 #elif PROD
-    public const string BaseUrl = "http://63.181.3.204:2200";
+    public const string BaseUrl = "https://goals.63-181-3-204.sslip.io";
     public const string AppTitle = "GOALS";
 #else
 #error "Build with -c DEV or -c PROD — Debug/Release are not configured."

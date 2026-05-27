@@ -15,7 +15,9 @@ services:
     depends_on:
       - mongo
     ports:
-      - "2200:2200"
+      # Bind to localhost only — public HTTPS is served by Caddy
+      # (goals.63-181-3-204.sslip.io) which reverse-proxies to 127.0.0.1:2200.
+      - "127.0.0.1:2200:2200"
     env_file:
       - backend/.env
     environment:
