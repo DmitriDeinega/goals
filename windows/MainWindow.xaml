@@ -271,7 +271,10 @@
                     </MenuFlyoutItem>
                 </MenuFlyout>
             </Button.ContextFlyout>
-            <Image Source="Assets/AppIcon.ico" Stretch="UniformToFill" />
+            <!-- High-res (512px) source: the collapsed widget is ~400 physical px
+                 at 200% scale, so the 256px-max AppIcon.ico would be upscaled and
+                 look soft. AppIconLarge.png downscales cleanly instead. -->
+            <Image Source="Assets/AppIconLarge.png" Stretch="UniformToFill" />
         </Button>
     </Grid>
 </Window>

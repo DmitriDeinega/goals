@@ -49,6 +49,16 @@
     <AppxBundle>Never</AppxBundle>
   </PropertyGroup>
 
+  <!-- Copy assets into the build output so they exist at AppContext.BaseDirectory
+       at runtime. MainWindow does AppWindow.SetIcon(BaseDirectory\Assets\AppIcon.ico),
+       which silently no-ops if the file is missing — which is exactly what happened
+       in loose (non-MSIX) layouts where Content isn't copied by default, leaving the
+       taskbar to fall back to the upscaled package logo. -->
+  <ItemDefinitionGroup>
+    <Content>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <Content Include="Assets\SplashScreen.scale-200.png" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
@@ -58,6 +68,7 @@
     <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\AppIconLarge.png" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
   </ItemGroup>
 
