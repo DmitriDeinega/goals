@@ -24,7 +24,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
             ACTION_NAV_NEXT -> handleNav(context, prev = false)
             ACTION_NAV_DAY -> handleNavDay(context, intent)
             ACTION_GO_TODAY -> handleGoToday(context)
-            ACTION_LAUNCH_APP -> handleLaunchApp(context)
+            ACTION_LAUNCH_APP -> handleLaunchApp(context, intent)
         }
     }
 
@@ -173,9 +173,11 @@ class WidgetActionReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun handleLaunchApp(context: Context) {
+    private fun handleLaunchApp(context: Context, intent: Intent) {
+        val date = intent.getStringExtra(EXTRA_DATE)
         val launch = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            if (!date.isNullOrEmpty()) putExtra(MainActivity.EXTRA_LAUNCH_DATE, date)
         }
         try {
             context.startActivity(launch)

@@ -276,7 +276,9 @@ object WidgetRenderer {
 
         rv.setOnClickFillInIntent(
             R.id.selected_date_label,
-            fillIn(WidgetActionReceiver.ACTION_LAUNCH_APP, "widget://goals/launch/date")
+            fillIn(WidgetActionReceiver.ACTION_LAUNCH_APP, "widget://goals/launch/date").apply {
+                putExtra(WidgetActionReceiver.EXTRA_DATE, selected)
+            }
         )
         rv.setOnClickFillInIntent(
             R.id.today_button,
@@ -310,7 +312,9 @@ object WidgetRenderer {
         }
         rv.setOnClickFillInIntent(
             R.id.header_summary,
-            fillIn(WidgetActionReceiver.ACTION_LAUNCH_APP, "widget://goals/launch")
+            fillIn(WidgetActionReceiver.ACTION_LAUNCH_APP, "widget://goals/launch").apply {
+                putExtra(WidgetActionReceiver.EXTRA_DATE, selected)
+            }
         )
     }
 

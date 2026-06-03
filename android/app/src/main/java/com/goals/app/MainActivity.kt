@@ -1,5 +1,6 @@
 package com.goals.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -42,22 +43,42 @@ import java.time.format.DateTimeFormatter
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    // Date the widget was showing when the user tapped to open the app. Consumed
+    // once by GoalsApp on resume, then cleared. null = launched normally (→ today).
+    private val launchDate = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        launchDate.value = intent?.getStringExtra(EXTRA_LAUNCH_DATE)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(BgColor.toArgb()),
             navigationBarStyle = SystemBarStyle.dark(BgColor.toArgb())
         )
         setContent {
             GoalsTheme {
-                GoalsApp()
+                GoalsApp(launchDate = launchDate)
             }
         }
+    }
+
+    // FLAG_ACTIVITY_CLEAR_TOP reuses this instance when the app is already running,
+    // so a widget tap arrives here rather than onCreate.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_LAUNCH_DATE)?.let { launchDate.value = it }
+    }
+
+    companion object {
+        const val EXTRA_LAUNCH_DATE = "launch_date"
     }
 }
 
 @Composable
-fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
+fun GoalsApp(
+    viewModel: AppViewModel = hiltViewModel(),
+    launchDate: MutableState<String?> = mutableStateOf(null),
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -79,11 +100,21 @@ fun GoalsApp(viewModel: AppViewModel = hiltViewModel()) {
         }
     }
 
-    // Kill SSE on pause, full reload on resume; reset selected date to today on resume.
+    // Kill SSE on pause, full reload on resume. Normally we reset the selected date
+    // to today on resume; but if we were opened from the widget we land on the date
+    // the widget was showing instead. onNewIntent sets launchDate before onResume,
+    // so reading it here picks up a warm-launch tap too.
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val serverToday = viewModel.uiState.value.today
-            selectedDate = serverToday.ifEmpty { LocalDate.now().format(fmt) }
+            val fromWidget = launchDate.value
+            if (!fromWidget.isNullOrEmpty()) {
+                selectedDate = fromWidget
+                alignedToServer = true  // don't let the today-sync effect clobber it
+                launchDate.value = null
+            } else {
+                val serverToday = viewModel.uiState.value.today
+                selectedDate = serverToday.ifEmpty { LocalDate.now().format(fmt) }
+            }
             viewModel.onResume()
             try {
                 awaitCancellation()
