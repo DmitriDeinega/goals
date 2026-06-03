@@ -25,7 +25,7 @@ from .routers.goals import goal_from_doc, get_settings_cached
 from .day_watcher import watch_day
 from .broadcaster import broadcast
 from .sequence import get_sequence, increment_sequence
-from .firebase_push import init_firebase, init_retry_loop, has_creds_env, is_enabled as fcm_is_enabled
+from .firebase_push import init_firebase, init_retry_loop, has_creds_env
 from pydantic import BaseModel
 from typing import List
 

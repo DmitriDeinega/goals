@@ -126,11 +126,6 @@ data class SetEnabledRequest(
 
 // ── SSE Event Models ───────────────────────────────────────────────────────────
 
-data class SseEvent(
-    val type: String,   // "log_changed" | "goal_changed" | "day_changed" | "ping"
-    val data: String    // raw JSON string, parsed per type
-)
-
 data class DayChangedPayload(
     val date: String,
     val logs: List<GoalLog>,

@@ -55,15 +55,10 @@ export const getInit = () => request('/init')
 export const getWeekData = (weekStart) => request(`/week-data?week_start=${weekStart}`)
 
 // Goals
-export const getGoals = () => request('/goals/')
 export const createGoal = (data) => request('/goals/', { method: 'POST', body: JSON.stringify(data) })
 export const updateGoal = (id, data) => request(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteGoal = (id) => request(`/goals/${id}`, { method: 'DELETE' })
 export const reorderGoals = (items) => request('/goals/reorder/batch', { method: 'PUT', body: JSON.stringify(items) })
-
-// Settings
-export const getSettings = () => request('/settings/')
-export const updateSettings = (data) => request('/settings/', { method: 'PUT', body: JSON.stringify(data) })
 
 // Logs — slot_index and value instead of slot and completed
 export const upsertLog = (data) => request('/logs/', { method: 'POST', body: JSON.stringify(data) })

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator, field_validator
+from pydantic import BaseModel, model_validator
 from typing import Optional, List
 from enum import Enum
 
@@ -156,9 +156,3 @@ class GoalChangedPayload(BaseModel):
     week_start: Optional[str] = None
     seq: int = 0
     reordered_goals: Optional[List[dict]] = None  # [{goal_id, new_order}] after delete
-
-
-class DayChangedPayload(BaseModel):
-    date: str
-    logs: List[LogOut]
-    seq: int

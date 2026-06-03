@@ -16,7 +16,6 @@ val Text2Color     = Color(0xFF888888)
 val Text3Color     = Color(0xFF444444)
 val AccentColor    = Color(0xFFC8F135)
 val AccentDim      = Color(0x1FC8F135)   // rgba(200,241,53, 0.12)
-val AccentDim2     = Color(0x0FC8F135)   // rgba(200,241,53, 0.06)
 val RedColor       = Color(0xFFFF4444)
 val RedDim         = Color(0x1FFF4444)   // rgba(255,68,68, 0.12)
 

@@ -2,10 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 
 let _addToast = null
 
-export function useToastTrigger() {
-  return _addToast
-}
-
 export default function ToastContainer() {
   const [toasts, setToasts] = useState([])
 
