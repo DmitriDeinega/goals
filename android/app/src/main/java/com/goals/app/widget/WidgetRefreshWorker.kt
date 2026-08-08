@@ -41,21 +41,49 @@ class WidgetRefreshWorker @AssistedInject constructor(
                 return Result.retry()
             }
             val data = response.body() ?: return Result.retry()
-            val weekStart = data.goalWeeks.firstOrNull()?.weekStart ?: ""
+            val payloadWeekStart = data.goalWeeks.firstOrNull()?.weekStart ?: ""
             val today = WidgetClock.today(data.settings)
-            cache.apply { s ->
-                s.copy(
+            // The widget's selected date is user-owned: only an explicit tap moves it.
+            // /api/init always returns the *current* week, so when the user has parked
+            // the widget on another week we must not stamp that payload over it — doing
+            // so left weekStart in one week and selectedDate in another, which rendered
+            // a day strip with no highlighted day and blanked the goal rows.
+            val committed = cache.applyAndGet { s ->
+                val selected = s.selectedDate.ifEmpty { today }
+                val desiredWeekStart =
+                    if (selected.isNotEmpty())
+                        WidgetDates.weekStartFor(selected, data.settings.firstDayOfWeek)
+                    else payloadWeekStart
+                // Week-independent fields are always safe to refresh.
+                val base = s.copy(
                     goals = data.goals.sortedBy { it.order },
-                    goalWeeks = data.goalWeeks,
-                    logs = data.logs,
-                    weekStart = weekStart,
                     today = today,
-                    selectedDate = s.selectedDate.ifEmpty { today },
+                    selectedDate = selected,
                     settings = data.settings,
                     lastSeq = data.seq
                 )
+                if (desiredWeekStart == payloadWeekStart) {
+                    base.copy(
+                        goalWeeks = data.goalWeeks,
+                        logs = data.logs,
+                        weekStart = payloadWeekStart
+                    )
+                } else {
+                    // Payload is for a week we're not showing. Keep the cached week's
+                    // rows and fetch the right one instead of rendering wrong data.
+                    base
+                }
             }
             WidgetUpdater.notifyListAndHeader(applicationContext)
+            // Derived from the *committed* snapshot, never from a var mutated inside
+            // the CAS lambda (which may run more than once).
+            val neededWeek = WidgetDates.weekStartFor(
+                committed.selectedDate.ifEmpty { today },
+                committed.settings?.firstDayOfWeek
+            )
+            if (committed.weekStart != neededWeek) {
+                WidgetUpdater.requestWeekFetch(applicationContext, neededWeek, selectedDate = null)
+            }
             Result.success()
         } catch (e: Exception) {
             Log.w(TAG, "Refresh exception: ${e.message}")

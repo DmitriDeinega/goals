@@ -31,19 +31,17 @@ class WidgetBootReceiver : BroadcastReceiver() {
                     cache.hydrate()
                     val newToday = WidgetClock.today(cache.snapshot().settings)
                     cache.apply { s ->
-                        val oldToday = s.today
-                        val newWeekStart = if (newToday.isNotEmpty()) {
+                        // Advance `today` only. The selected date is user-owned — a day
+                        // rollover must never move it, not even when the user happened to
+                        // be sitting on the old today. The new day simply becomes
+                        // tappable and the TODAY button lights up as the affordance.
+                        val newWeekStart = if (s.weekStart.isEmpty() && newToday.isNotEmpty()) {
                             WidgetDates.weekStartFor(newToday, s.settings?.firstDayOfWeek)
                         } else s.weekStart
-                        // If the user hadn't explicitly navigated away from "today",
-                        // advance the selected date too. Preserve an intentional past selection.
-                        val newSelected = if (s.selectedDate == oldToday || s.selectedDate.isEmpty()) {
-                            newToday
-                        } else s.selectedDate
                         s.copy(
                             today = newToday,
-                            selectedDate = newSelected,
-                            weekStart = if (s.weekStart.isEmpty()) newWeekStart else s.weekStart
+                            selectedDate = s.selectedDate.ifEmpty { newToday },
+                            weekStart = newWeekStart
                         )
                     }
                     WidgetUpdater.notifyListAndHeader(context)

@@ -31,27 +31,28 @@ class WidgetWeekDataWorker @AssistedInject constructor(
                 return Result.retry()
             }
             val data = response.body() ?: return Result.retry()
-            var applied = false
-            cache.apply { s ->
-                // Atomic CAS safety check: only apply if the user's current selected
-                // date is still within the week we just fetched. Otherwise the user
-                // has navigated again and this fetch is stale.
-                val firstDay = s.settings?.firstDayOfWeek
-                val desiredSel = selectedDate ?: s.selectedDate
-                val desiredWeekStart = if (desiredSel.isNotEmpty())
-                    WidgetDates.weekStartFor(desiredSel, firstDay) else weekStart
-                if (desiredWeekStart != weekStart) {
-                    return@apply s
-                }
-                applied = true
+            val committed = cache.applyAndGet { s ->
+                // The week we fetched is only useful if the *live* selection still
+                // belongs to it. Deciding from this request's own input instead would
+                // always pass, which let a slow cross-week response reverse a newer
+                // tap. Reading s.selectedDate inside the CAS lambda means the check is
+                // re-evaluated against the winning snapshot on contention.
+                val desiredSel = s.selectedDate.ifEmpty { selectedDate ?: "" }
+                if (desiredSel.isEmpty()) return@applyAndGet s
+                val liveWeekStart =
+                    WidgetDates.weekStartFor(desiredSel, s.settings?.firstDayOfWeek)
+                if (liveWeekStart != weekStart) return@applyAndGet s
+
                 s.copy(
                     goalWeeks = data.goalWeeks,
                     logs = data.logs,
                     weekStart = weekStart,
-                    selectedDate = selectedDate ?: s.selectedDate
+                    selectedDate = desiredSel
                 )
             }
-            if (applied) {
+            // Derived from the committed result — the CAS lambda may run repeatedly,
+            // so a flag mutated inside it can report work that was never committed.
+            if (committed.weekStart == weekStart) {
                 WidgetUpdater.notifyListAndHeader(applicationContext)
             }
             Result.success()

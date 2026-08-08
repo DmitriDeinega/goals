@@ -93,13 +93,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
             } else {
                 WidgetDates.nextSelectedDate(current, today, firstDay) ?: return
             }
-            val newWeekStart = WidgetDates.weekStartFor(newDate, firstDay)
-            if (newWeekStart != snapshot.weekStart) {
-                enqueueWeekFetch(context, newWeekStart, newDate)
-            } else {
-                cache.apply { s -> s.copy(selectedDate = newDate) }
-                WidgetUpdater.notifyListAndHeader(context, refreshClicks = false)
-            }
+            commitSelection(context, cache, newDate)
         } catch (t: Throwable) {
             Log.w(TAG, "Nav error: ${t.message}")
         } finally {
@@ -116,15 +110,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
                 WidgetProviderEntryPoint::class.java
             ).cache()
             runBlocking { cache.hydrate() }
-            val snapshot = cache.snapshot()
-            val firstDay = snapshot.settings?.firstDayOfWeek
-            val newWeekStart = WidgetDates.weekStartFor(date, firstDay)
-            if (newWeekStart != snapshot.weekStart) {
-                enqueueWeekFetch(context, newWeekStart, date)
-            } else {
-                cache.apply { s -> s.copy(selectedDate = date) }
-                WidgetUpdater.notifyListAndHeader(context, refreshClicks = false)
-            }
+            commitSelection(context, cache, date)
         } catch (t: Throwable) {
             Log.w(TAG, "NavDay error: ${t.message}")
         } finally {
@@ -132,20 +118,43 @@ class WidgetActionReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun enqueueWeekFetch(context: Context, newWeekStart: String, newSelectedDate: String) {
-        val req = OneTimeWorkRequestBuilder<WidgetWeekDataWorker>()
-            .setInputData(
-                workDataOf(
-                    WidgetWeekDataWorker.K_WEEK_START to newWeekStart,
-                    WidgetWeekDataWorker.K_SELECTED_DATE to newSelectedDate
+    /**
+     * Commit an explicit user selection.
+     *
+     * The selection is written immediately and unconditionally — it is user-owned,
+     * so the widget must reflect the tap right away even when the target week's rows
+     * still have to be fetched. Deferring the write until the fetch returned meant a
+     * slow response could land after a newer tap and reverse it.
+     *
+     * The same-week/other-week decision is made *inside* the CAS lambda against the
+     * winning snapshot. Deciding outside it was a TOCTOU race: a week worker
+     * committing in between left `weekStart` from the new week beside a
+     * `selectedDate` from the old one.
+     */
+    private fun commitSelection(context: Context, cache: WidgetCache, newDate: String) {
+        val before = cache.snapshot().weekStart
+        val committed = cache.applyAndGet { s ->
+            val target = WidgetDates.weekStartFor(newDate, s.settings?.firstDayOfWeek)
+            if (target == s.weekStart) {
+                s.copy(selectedDate = newDate)
+            } else {
+                // Rows for the target week aren't cached yet. Move the selection now
+                // and drop the stale week's rows so nothing wrong renders in the gap;
+                // weekStart follows the selection so the invariant always holds.
+                s.copy(
+                    selectedDate = newDate,
+                    weekStart = target,
+                    goalWeeks = emptyList(),
+                    logs = emptyList()
                 )
-            )
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "widget-week-fetch",
-            ExistingWorkPolicy.REPLACE,
-            req
-        )
+            }
+        }
+        WidgetUpdater.notifyListAndHeader(context, refreshClicks = false)
+        // Fetch only when the week actually changed. Testing "are there no rows?"
+        // instead would refetch forever for a week that legitimately has no goals.
+        if (committed.weekStart != before) {
+            WidgetUpdater.requestWeekFetch(context, committed.weekStart, newDate)
+        }
     }
 
     private fun handleGoToday(context: Context) {
@@ -159,13 +168,7 @@ class WidgetActionReceiver : BroadcastReceiver() {
             val snapshot = cache.snapshot()
             val today = WidgetClock.today(snapshot)
             if (today.isEmpty() || snapshot.selectedDate == today) return
-            val newWeekStart = WidgetDates.weekStartFor(today, snapshot.settings?.firstDayOfWeek)
-            if (newWeekStart != snapshot.weekStart) {
-                enqueueWeekFetch(context, newWeekStart, today)
-            } else {
-                cache.apply { s -> s.copy(selectedDate = today) }
-                WidgetUpdater.notifyListAndHeader(context, refreshClicks = false)
-            }
+            commitSelection(context, cache, today)
         } catch (t: Throwable) {
             Log.w(TAG, "GoToday error: ${t.message}")
         } finally {

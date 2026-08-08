@@ -48,6 +48,41 @@ object WidgetUpdater {
             .enqueueUniqueWork("widget-refresh", ExistingWorkPolicy.REPLACE, req)
     }
 
+    /**
+     * Fetch a specific week's goalWeeks/logs into the cache. Used by widget
+     * navigation (user picked a day/week we don't have) and by the refresh
+     * worker when /api/init returned a week other than the one on screen.
+     *
+     * Pass selectedDate to move the selection as part of the fetch, or null to
+     * refresh the week's data while leaving the selection untouched.
+     *
+     * User navigation and background top-ups use *separate* unique-work names.
+     * They previously shared one, so a background fetch could REPLACE — i.e.
+     * cancel — an in-flight fetch for a week the user had just tapped, losing the
+     * navigation entirely. Only a newer user tap may cancel an older user tap.
+     */
+    fun requestWeekFetch(context: Context, weekStart: String, selectedDate: String?) {
+        val data = if (selectedDate != null) {
+            androidx.work.workDataOf(
+                WidgetWeekDataWorker.K_WEEK_START to weekStart,
+                WidgetWeekDataWorker.K_SELECTED_DATE to selectedDate
+            )
+        } else {
+            androidx.work.workDataOf(WidgetWeekDataWorker.K_WEEK_START to weekStart)
+        }
+        val req = OneTimeWorkRequestBuilder<WidgetWeekDataWorker>()
+            .setInputData(data)
+            .build()
+        val isUserNavigation = selectedDate != null
+        val name = if (isUserNavigation) WORK_WEEK_FETCH_NAV else WORK_WEEK_FETCH_BG
+        // A background top-up must never displace a user's pending navigation.
+        val policy = if (isUserNavigation) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+        WorkManager.getInstance(context).enqueueUniqueWork(name, policy, req)
+    }
+
+    private const val WORK_WEEK_FETCH_NAV = "widget-week-fetch"
+    private const val WORK_WEEK_FETCH_BG = "widget-week-fetch-bg"
+
     fun schedulePeriodicRefresh(context: Context) {
         val req = PeriodicWorkRequestBuilder<WidgetRefreshWorker>(15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

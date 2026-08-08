@@ -74,13 +74,26 @@ class WidgetCache @Inject constructor(
     }
 
     fun apply(update: (WidgetSnapshot) -> WidgetSnapshot) {
+        applyAndGet(update)
+    }
+
+    /**
+     * Same as [apply], but returns the snapshot that was actually committed.
+     *
+     * Callers that need to act on what the update decided (e.g. "was the cached
+     * week left stale, so should I schedule a fetch?") MUST derive that from this
+     * return value rather than mutating a captured var inside the lambda: [update]
+     * is re-invoked on CAS contention, so a side effect from a discarded attempt
+     * would leak out and act on a decision that was never committed.
+     */
+    fun applyAndGet(update: (WidgetSnapshot) -> WidgetSnapshot): WidgetSnapshot {
         while (true) {
             val current = ref.get()
             val next = update(current)
             if (ref.compareAndSet(current, next)) {
                 _flow.value = next
                 if (next.hydrated) persist(next)
-                return
+                return next
             }
         }
     }

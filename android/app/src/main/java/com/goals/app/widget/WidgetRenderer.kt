@@ -143,12 +143,27 @@ object WidgetRenderer {
         return rv
     }
 
+    /**
+     * The week to draw the day strip for. Always the week containing [selected] —
+     * the cached weekStart is only used when it agrees, so a cache mid-update
+     * (weekStart already advanced, selection deliberately left behind) can never
+     * render a strip that omits its own highlighted day.
+     */
+    private fun displayWeekStart(snapshot: WidgetSnapshot, selected: String): String {
+        val fromSelected = WidgetDates.weekStartFor(selected, snapshot.settings?.firstDayOfWeek)
+        return if (snapshot.weekStart == fromSelected) snapshot.weekStart else fromSelected
+    }
+
     private fun renderHeaderContent(rv: RemoteViews, snapshot: WidgetSnapshot) {
         val today = WidgetClock.today(snapshot)
         val selected = snapshot.selectedDate.ifEmpty { today }
         val currency = snapshot.settings?.currency ?: "USD"
         val symbol = if (currency == "NIS") "₪" else "$"
-        val summary = if (snapshot.weekStart.isNotEmpty() && snapshot.settings != null) {
+        // Only summarize when the cached week is the one being displayed; otherwise
+        // the percentage would describe a week the strip isn't showing.
+        val weekMatches = snapshot.weekStart.isNotEmpty() &&
+            snapshot.weekStart == displayWeekStart(snapshot, selected)
+        val summary = if (weekMatches && snapshot.settings != null) {
             val weekEnd = LocalDate.parse(snapshot.weekStart, DateTimeFormatter.ISO_LOCAL_DATE)
                 .plusDays(6).format(DateTimeFormatter.ISO_LOCAL_DATE)
             computeWeekSummary(
@@ -184,9 +199,7 @@ object WidgetRenderer {
         } else {
             rv.setViewVisibility(R.id.header_reward, View.GONE)
         }
-        val weekStart = if (snapshot.weekStart.isNotEmpty()) snapshot.weekStart
-            else WidgetDates.weekStartFor(selected, snapshot.settings?.firstDayOfWeek)
-        applyDayStrip(rv, weekStart, selected, today)
+        applyDayStrip(rv, displayWeekStart(snapshot, selected), selected, today)
         val canGoNext = WidgetDates.nextSelectedDate(
             selected,
             today,
@@ -269,9 +282,9 @@ object WidgetRenderer {
     private fun applyHeaderFillInIntents(rv: RemoteViews, snapshot: WidgetSnapshot) {
         val today = WidgetClock.today(snapshot)
         val selected = snapshot.selectedDate.ifEmpty { today }
-        val weekStart = if (snapshot.weekStart.isNotEmpty()) snapshot.weekStart
-            else WidgetDates.weekStartFor(selected, snapshot.settings?.firstDayOfWeek)
-        val startDate = LocalDate.parse(weekStart, DateTimeFormatter.ISO_LOCAL_DATE)
+        val startDate = LocalDate.parse(
+            displayWeekStart(snapshot, selected), DateTimeFormatter.ISO_LOCAL_DATE
+        )
         val todayDate = LocalDate.parse(today, DateTimeFormatter.ISO_LOCAL_DATE)
 
         rv.setOnClickFillInIntent(
