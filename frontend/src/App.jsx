@@ -92,13 +92,21 @@ export default function App() {
 
   const handleOutOfSync = () => load()
 
+  // Refresh on tab return (SSE may have missed events while hidden). `load()`
+  // refreshes goals/settings and the current week; if the user is viewing a
+  // different week, that one needs its own fetch — `load()` deliberately
+  // won't touch it.
   useEffect(() => {
     function onVisible() {
-      if (document.visibilityState === 'visible') load()
+      if (document.visibilityState !== 'visible') return
+      load()
+      if (visibleWeekStart && visibleWeekStart !== getWeekStart(dayjs().format('YYYY-MM-DD'), firstDay)) {
+        loadWeek(visibleWeekStart)
+      }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [load])
+  }, [load, loadWeek, visibleWeekStart, firstDay])
 
   useEvents({
     enabled: sseEnabled,

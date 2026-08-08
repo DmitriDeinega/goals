@@ -117,16 +117,28 @@ export function useAppState() {
   const weekLogs = weekState.logs
   const visibleWeekStart = weekState.weekStart
 
+  // `/api/init` always returns the CURRENT week — it has no notion of which
+  // week the user is viewing. So its week payload is only applied when it
+  // matches the visible week (or nothing is loaded yet). Overwriting
+  // unconditionally made every refresh flash the current week's data and then
+  // snap back once the effect in App.jsx re-fetched the real one.
   const load = useCallback(async () => {
     try {
       const data = await getInit()
       setGoals(data.goals)
-      setWeekState({
-        goalWeeks: data.goal_weeks,
-        logs: data.logs,
-        weekStart: data.goal_weeks[0]?.week_start ?? null,
-      })
       setSettings(data.settings)
+      setWeekState(prev => {
+        const initWeekStart = data.goal_weeks[0]?.week_start ?? null
+        if (prev.weekStart !== null && prev.weekStart !== initWeekStart) {
+          // Viewing a different week — keep it; App.jsx refreshes it separately.
+          return prev
+        }
+        return {
+          goalWeeks: data.goal_weeks,
+          logs: data.logs,
+          weekStart: initWeekStart,
+        }
+      })
     } catch (e) {
       // error toasted by api layer
     } finally {
