@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Set
 
 logger = logging.getLogger("goals.broadcaster")
@@ -40,28 +39,32 @@ async def _push_fcm(event: str, data, exclude_session: str = None):
         if not firebase_push.is_enabled():
             return
         from .database import get_db
-        db = get_db()
-        query = {}
+        pool = get_db()
         if exclude_session:
-            query = {
-                "$nor": [
-                    {"app_session_id": exclude_session},
-                    {"widget_session_id": exclude_session},
-                ]
-            }
-        device_docs = await db.devices.find(query).to_list(None)
-        tokens = [d.get("token") for d in device_docs if d.get("token")]
+            # IS DISTINCT FROM (not <>) so rows with a NULL session id still
+            # match — a device that never reported one must still get the push.
+            rows = await pool.fetch(
+                """
+                SELECT token FROM devices
+                WHERE app_session_id IS DISTINCT FROM $1
+                  AND widget_session_id IS DISTINCT FROM $1
+                """,
+                exclude_session,
+            )
+        else:
+            rows = await pool.fetch("SELECT token FROM devices")
+        tokens = [r["token"] for r in rows if r["token"]]
         seq = data.get("seq") if isinstance(data, dict) else 0
         result = await firebase_push.send_refresh_push(
             tokens, event, seq or 0, payload=data
         )
         failed, succeeded = (result if isinstance(result, tuple) else (result or set(), set()))
         if failed:
-            await db.devices.delete_many({"token": {"$in": list(failed)}})
+            await pool.execute("DELETE FROM devices WHERE token = ANY($1::text[])", list(failed))
         if succeeded:
-            await db.devices.update_many(
-                {"token": {"$in": list(succeeded)}},
-                {"$set": {"last_seen_at": datetime.now(timezone.utc)}},
+            await pool.execute(
+                "UPDATE devices SET last_seen_at = now() WHERE token = ANY($1::text[])",
+                list(succeeded),
             )
     except Exception as e:
         logger.warning(f"FCM push failed: {e}")

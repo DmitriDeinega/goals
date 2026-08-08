@@ -4,78 +4,89 @@ from .broadcaster import broadcast
 from .database import get_db
 from .time_utils import get_today, get_week_start
 from .sequence import increment_sequence
+from .rows import log_from_row, to_date
 
 logger = logging.getLogger("goals.day_watcher")
 
 
-async def watch_day():
-    db = get_db()
-    settings = await db.settings.find_one({"_id": "global"})
-    if not settings:
+async def _read_settings(conn):
+    row = await conn.fetchrow(
+        "SELECT timezone, first_day_of_week FROM settings WHERE id = TRUE"
+    )
+    if not row:
         raise RuntimeError("Settings not found in DB")
+    return row["timezone"], row["first_day_of_week"]
 
-    tz_name = settings["timezone"]
+
+async def watch_day():
+    from .routers.weeks import enroll_goals_for_week
+    from .routers.logs import ensure_slots_for_goal
+    from .routers.devices import prune_stale_devices
+
+    pool = get_db()
+    async with pool.acquire() as conn:
+        tz_name, _ = await _read_settings(conn)
     last_date = get_today(tz_name)
 
     while True:
         try:
             await asyncio.sleep(60)
 
-            settings = await db.settings.find_one({"_id": "global"})
-            if not settings:
-                raise RuntimeError("Settings not found in DB")
+            async with pool.acquire() as conn:
+                tz_name, first_day = await _read_settings(conn)
+                today = get_today(tz_name)
 
-            tz_name = settings["timezone"]
-            first_day = settings["first_day_of_week"]
-            today = get_today(tz_name)
+                if today == last_date:
+                    continue
 
-            if today == last_date:
-                continue
+                logger.info(f"New day detected: {today}")
 
+                # "Is the day initialized?" must mean EVERY daily goal has a
+                # row — not "some row exists". reconcile_slots_for_goal
+                # pre-creates rows through week_end, so a single goal resized
+                # earlier in the week would otherwise make the watcher skip
+                # enrollment, slot creation, and the broadcast for all the rest.
+                missing = await conn.fetchval(
+                    """
+                    SELECT count(*) FROM goals g
+                    WHERE g.type = 'daily'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM logs l
+                          WHERE l.goal_id = g.id AND l.date = $1
+                      )
+                    """,
+                    to_date(today),
+                )
+                if not missing:
+                    logger.info(f"{today} already initialized, skipping broadcast")
+                    last_date = today
+                    continue
+
+                week_start = get_week_start(today, first_day)
+
+                async with conn.transaction():
+                    enrolled = await enroll_goals_for_week(conn, week_start)
+                    if enrolled:
+                        logger.info(f"Enrolled {enrolled} goals for week {week_start}")
+
+                    daily_goals = await conn.fetch(
+                        "SELECT id, times_per_day, is_negative FROM goals WHERE type = 'daily'"
+                    )
+                    for g in daily_goals:
+                        await ensure_slots_for_goal(
+                            conn, g["id"], today, today,
+                            g["times_per_day"] or 1, g["is_negative"],
+                        )
+
+                rows = await conn.fetch(
+                    "SELECT goal_id, date, slots FROM logs WHERE date = $1", to_date(today)
+                )
+                logs_data = [log_from_row(r).model_dump() for r in rows]
+
+            # Only now that initialization has committed do we consider the day
+            # handled. Advancing earlier would mean a transient DB error left
+            # the day uninitialized until the process restarted.
             last_date = today
-            logger.info(f"New day detected: {today}")
-
-            existing = await db.logs.find_one({"date": today})
-            if existing:
-                logger.info(f"{today} already initialized, skipping broadcast")
-                continue
-
-            week_start = get_week_start(today, first_day)
-
-            all_goals = await db.goals.find({}).to_list(None)
-            existing_gw = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
-            existing_ids = {e["goal_id"] for e in existing_gw}
-
-            for g in all_goals:
-                gid = str(g["_id"])
-                if gid not in existing_ids:
-                    await db.goal_weeks.insert_one({
-                        "goal_id": gid,
-                        "week_start": week_start,
-                        "enabled": True,
-                        "snapshot": {
-                            "name": g.get("name"),
-                            "order": g.get("order", 0),
-                            "type": g.get("type"),
-                            "is_negative": g.get("is_negative", False),
-                            "times_per_day": g.get("times_per_day"),
-                            "times_per_week": g.get("times_per_week"),
-                            "reward_rules": g.get("reward_rules", []),
-                        }
-                    })
-                    logger.info(f"Enrolled goal {gid} for week {week_start}")
-
-            from .routers.logs import ensure_slots_for_goal, log_from_doc
-
-            daily_goals = [g for g in all_goals if g.get("type") == "daily"]
-            for g in daily_goals:
-                gid = str(g["_id"])
-                tpd = g.get("times_per_day") or 1
-                is_neg = g.get("is_negative", False)
-                await ensure_slots_for_goal(db, gid, today, today, tpd, is_neg)
-
-            log_docs = await db.logs.find({"date": today}).to_list(None)
-            logs_data = [log_from_doc(doc).model_dump() for doc in log_docs]
 
             seq = await increment_sequence()
             await broadcast("day_changed", {
@@ -85,6 +96,15 @@ async def watch_day():
             })
 
             logger.info(f"day_changed broadcasted for {today} with {len(logs_data)} logs seq={seq}")
+
+            # Replaces Mongo's TTL index on devices.last_seen_at. Runs once a
+            # day on rollover, which is ample for a 60-day expiry.
+            try:
+                pruned = await prune_stale_devices()
+                if pruned:
+                    logger.info(f"Pruned {pruned} stale device tokens")
+            except Exception as e:
+                logger.warning(f"Device prune failed: {e}")
 
         except asyncio.CancelledError:
             logger.info("day_watcher cancelled")

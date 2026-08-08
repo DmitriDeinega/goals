@@ -1,11 +1,20 @@
 name: goals
 services:
-  mongo:
-    image: mongo:7
-    container_name: goals-mongo
+  postgres:
+    image: postgres:16
+    container_name: goals-postgres
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: goals
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-goals}
+      POSTGRES_DB: goals_db
     volumes:
-      - goals_mongo_data:/data/db
+      - goals_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goals -d goals_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
@@ -13,19 +22,22 @@ services:
     container_name: goals-backend
     restart: unless-stopped
     depends_on:
-      - mongo
+      # The backend applies schema.sql on boot, so Postgres must be accepting
+      # connections first — plain `depends_on` only waits for container start.
+      postgres:
+        condition: service_healthy
     ports:
-      # Bind to localhost only — public HTTPS is served by Caddy
-      # (goals.63-181-3-204.sslip.io) which reverse-proxies to 127.0.0.1:2200.
+      # Bind to localhost only — HTTPS is terminated in front of this
+      # (goals.fermats-eco.tail164998.ts.net) and reverse-proxied to
+      # 127.0.0.1:2200. Never expose this port directly.
       - "127.0.0.1:2200:2200"
     env_file:
       - backend/.env
     environment:
-      MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: goals_db
+      DATABASE_URL: postgresql://goals:${POSTGRES_PASSWORD:-goals}@postgres:5432/goals_db
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase_service_account
     volumes:
       - ./backend/goals-firebase-service-account.json:/run/secrets/firebase_service_account:ro
 
 volumes:
-  goals_mongo_data:
+  goals_pg_data:

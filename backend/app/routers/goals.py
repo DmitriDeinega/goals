@@ -1,60 +1,66 @@
 from fastapi import APIRouter, HTTPException, Request
-from bson import ObjectId
+import asyncpg
 import logging
 from ..database import get_db
-from ..models import GoalCreate, GoalUpdate, GoalOut, GoalWeekOut, GoalChangedPayload, LogOut
+from ..models import GoalCreate, GoalUpdate, GoalOut, GoalWeekOut, GoalChangedPayload
 from ..time_utils import get_today, get_week_start, get_week_end
 from ..broadcaster import broadcast
-from ..sequence import consume_client_seq
+from ..sequence import consume_client_seq, parse_client_seq
+from ..rows import goal_from_row, goal_week_from_row, snapshot_from_row, to_date
 from .logs import get_goal_week_logs, ensure_slots_for_goal, reconcile_slots_for_goal
 
 router = APIRouter()
 logger = logging.getLogger("goals.routers.goals")
 
-
-async def get_settings_cached(db):
-    s = await db.settings.find_one({"_id": "global"})
-    if not s:
-        raise RuntimeError("Settings not found in DB")
-    return s["timezone"], s["first_day_of_week"]
+GOAL_COLS = 'id, name, type, is_negative, times_per_week, times_per_day, reward_rules, "order", version'
 
 
-def goal_from_doc(doc, enabled: bool = True) -> GoalOut:
-    reward_rules = sorted(doc.get("reward_rules", []), key=lambda r: r.get("min_completions", 0))
-    return GoalOut(
-        id=str(doc["_id"]),
-        name=doc["name"],
-        type=doc["type"],
-        is_negative=doc.get("is_negative", False),
-        times_per_week=doc.get("times_per_week"),
-        times_per_day=doc.get("times_per_day"),
-        reward_rules=reward_rules,
-        order=doc.get("order", 0),
-        enabled=enabled,
-        version=doc.get("version", 0),
+async def get_settings_cached(conn):
+    row = await conn.fetchrow(
+        "SELECT timezone, first_day_of_week FROM settings WHERE id = TRUE"
     )
+    if not row:
+        raise RuntimeError("Settings not found in DB")
+    return row["timezone"], row["first_day_of_week"]
 
 
-def goal_week_from_doc(doc) -> GoalWeekOut:
-    return GoalWeekOut(
-        goal_id=doc["goal_id"],
-        week_start=doc["week_start"],
-        enabled=doc.get("enabled", True),
-        snapshot=doc.get("snapshot", {}),
+def parse_goal_id(goal_id: str) -> int:
+    """Clients send goal ids as strings (their models are typed that way).
+    A non-numeric id can't exist, so treat it as a 404 rather than a 500."""
+    try:
+        return int(goal_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Goal not found")
+
+
+async def upsert_snapshot(conn, goal_id: int, week_start, goal_row):
+    """Refresh the frozen config on the current week's goal_weeks row."""
+    await conn.execute(
+        """
+        INSERT INTO goal_weeks (goal_id, week_start, enabled, snapshot)
+        VALUES ($1, $2, TRUE, $3)
+        ON CONFLICT (goal_id, week_start) DO UPDATE SET snapshot = EXCLUDED.snapshot
+        """,
+        goal_id, to_date(week_start), snapshot_from_row(goal_row),
     )
 
 
 @router.get("/", response_model=list[GoalOut])
 async def get_goals():
     try:
-        db = get_db()
-        tz, first_day = await get_settings_cached(db)
-        today = get_today(tz)
-        week_start = get_week_start(today, first_day)
-        goals = [doc async for doc in db.goals.find({}).sort("order", 1)]
-        entries = await db.goal_weeks.find({"week_start": week_start}).to_list(None)
-        enabled_map = {e["goal_id"]: e.get("enabled", True) for e in entries}
-        return [goal_from_doc(g, enabled_map.get(str(g["_id"]), True)) for g in goals]
+        pool = get_db()
+        async with pool.acquire() as conn:
+            tz, first_day = await get_settings_cached(conn)
+            week_start = get_week_start(get_today(tz), first_day)
+            rows = await conn.fetch(
+                f'SELECT {GOAL_COLS} FROM goals ORDER BY "order"'
+            )
+            entries = await conn.fetch(
+                "SELECT goal_id, enabled FROM goal_weeks WHERE week_start = $1",
+                to_date(week_start),
+            )
+        enabled_map = {e["goal_id"]: e["enabled"] for e in entries}
+        return [goal_from_row(g, enabled_map.get(g["id"], True)) for g in rows]
     except Exception as e:
         logger.error(f"Failed to get goals: {e}")
         raise
@@ -63,59 +69,63 @@ async def get_goals():
 @router.post("/", response_model=GoalChangedPayload)
 async def create_goal(goal: GoalCreate, request: Request):
     try:
-        db = get_db()
-        # Atomic CAS: validates X-Sequence and reserves the next seq in one
-        # round-trip. Returns the new seq for the broadcast payload below.
-        seq = await consume_client_seq(request)
-        tz, first_day = await get_settings_cached(db)
-        today = get_today(tz)
-        week_start = get_week_start(today, first_day)
-        week_end = get_week_end(week_start)
+        pool = get_db()
+        async with pool.acquire() as conn:
+            tz, first_day = await get_settings_cached(conn)
+            today = get_today(tz)
+            week_start = get_week_start(today, first_day)
+            week_end = get_week_end(week_start)
 
-        existing = await db.goals.find_one(
-            {"name": goal.name.strip()},
-            collation={"locale": "en", "strength": 2},
-        )
-        if existing:
-            raise HTTPException(status_code=422, detail="A goal with this name already exists")
+            # Reject a malformed header before opening a transaction.
+            parse_client_seq(request)
 
-        last = await db.goals.find_one({}, sort=[("order", -1)])
-        next_order = (last.get("order", -1) + 1) if last else 0
+            async with conn.transaction():
+                # CAS inside the transaction: if anything below fails, the
+                # sequence rolls back with it rather than stranding clients.
+                seq = await consume_client_seq(conn, request)
 
-        doc = goal.model_dump()
-        doc["order"] = next_order
-        doc["version"] = 1
-        result = await db.goals.insert_one(doc)
-        gid = str(result.inserted_id)
-        created = await db.goals.find_one({"_id": result.inserted_id})
+                next_order = await conn.fetchval(
+                    'SELECT COALESCE(MAX("order") + 1, 0) FROM goals'
+                )
+                try:
+                    created = await conn.fetchrow(
+                        f"""
+                        INSERT INTO goals
+                            (name, type, is_negative, times_per_week, times_per_day,
+                             reward_rules, "order", version)
+                        VALUES ($1, $2::goal_type, $3, $4, $5, $6, $7, 1)
+                        RETURNING {GOAL_COLS}
+                        """,
+                        goal.name.strip(), goal.type.value, goal.is_negative,
+                        goal.times_per_week, goal.times_per_day,
+                        [r.model_dump() for r in goal.reward_rules], next_order,
+                    )
+                except asyncpg.UniqueViolationError:
+                    # The unique index is the single source of truth here — the
+                    # old read-then-check could let two concurrent creates race.
+                    raise HTTPException(
+                        status_code=422, detail="A goal with this name already exists"
+                    )
 
-        snapshot = {
-            "name": created.get("name"),
-            "order": created.get("order", 0),
-            "type": created.get("type"),
-            "is_negative": created.get("is_negative", False),
-            "times_per_day": created.get("times_per_day"),
-            "times_per_week": created.get("times_per_week"),
-            "reward_rules": created.get("reward_rules", []),
-        }
-        await db.goal_weeks.insert_one({
-            "goal_id": gid,
-            "week_start": week_start,
-            "enabled": True,
-            "snapshot": snapshot,
-        })
+                gid = created["id"]
+                await upsert_snapshot(conn, gid, week_start, created)
 
-        if goal.type == "daily":
-            tpd = goal.times_per_day or 1
-            await ensure_slots_for_goal(db, gid, week_start, today, tpd, goal.is_negative)
+                if goal.type == "daily":
+                    await ensure_slots_for_goal(
+                        conn, gid, week_start, today,
+                        goal.times_per_day or 1, goal.is_negative,
+                    )
 
-        goal_week_doc = await db.goal_weeks.find_one({"goal_id": gid, "week_start": week_start})
-        goal_logs = await get_goal_week_logs(db, gid, week_start, week_end)
+            goal_week_row = await conn.fetchrow(
+                "SELECT goal_id, week_start, enabled, snapshot FROM goal_weeks WHERE goal_id = $1 AND week_start = $2",
+                gid, to_date(week_start),
+            )
+            goal_logs = await get_goal_week_logs(conn, gid, week_start, week_end)
 
         payload = GoalChangedPayload(
             action="created",
-            goal=goal_from_doc(created, enabled=True),
-            goal_week=goal_week_from_doc(goal_week_doc),
+            goal=goal_from_row(created, enabled=True),
+            goal_week=goal_week_from_row(goal_week_row),
             logs=goal_logs,
             week_start=week_start,
             seq=seq,
@@ -134,215 +144,284 @@ async def create_goal(goal: GoalCreate, request: Request):
 
 @router.put("/{goal_id}", response_model=GoalChangedPayload)
 async def update_goal(goal_id: str, goal: GoalUpdate, request: Request):
+    gid = parse_goal_id(goal_id)
     try:
-        db = get_db()
-        seq = await consume_client_seq(request)
+        pool = get_db()
+        async with pool.acquire() as conn:
+            current = await conn.fetchrow(f"SELECT {GOAL_COLS} FROM goals WHERE id = $1", gid)
+            if not current:
+                raise HTTPException(status_code=404, detail="Goal not found")
 
-        current = await db.goals.find_one({"_id": ObjectId(goal_id)})
-        if not current:
-            raise HTTPException(status_code=404, detail="Goal not found")
+            client_version = goal.version
+            db_version = current["version"]
+            effective_client_version = client_version if client_version is not None else db_version
+            if db_version != effective_client_version:
+                logger.warning(
+                    f"Version conflict on goal {gid}: client={client_version} db={db_version}"
+                )
+                raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
 
-        client_version = goal.version
-        db_version = current.get("version", 0)
-        effective_client_version = client_version if client_version is not None else db_version
-        if db_version != effective_client_version:
-            logger.warning(f"Version conflict on goal {goal_id}: client={client_version} db={db_version}")
-            raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+            parse_client_seq(request)
 
-        name_val = goal.model_dump().get("name")
-        if name_val:
-            existing = await db.goals.find_one(
-                {"name": name_val.strip(), "_id": {"$ne": ObjectId(goal_id)}},
-                collation={"locale": "en", "strength": 2},
-            )
-            if existing:
-                raise HTTPException(status_code=422, detail="A goal with this name already exists")
-
-        update_data = {}
-        for k, v in goal.model_dump().items():
-            if k == "version":
-                continue
-            if k in ("reward_rules", "times_per_week", "times_per_day"):
+            data = goal.model_dump()
+            update = {}
+            for k, v in data.items():
+                if k == "version":
+                    continue
                 if v is not None:
-                    update_data[k] = v
-            elif v is not None:
-                update_data[k] = v
+                    update[k] = v
 
-        if not update_data:
-            raise HTTPException(status_code=400, detail="No fields to update")
+            if not update:
+                raise HTTPException(status_code=400, detail="No fields to update")
 
-        # Clear irrelevant field when type changes
-        new_type = update_data.get("type") or current.get("type")
-        if new_type == "daily":
-            update_data["times_per_week"] = None
-        elif new_type == "weekly_x":
-            update_data["times_per_day"] = None
+            if "name" in update:
+                update["name"] = update["name"].strip()
+            if "type" in update:
+                update["type"] = update["type"].value if hasattr(update["type"], "value") else update["type"]
+            if "reward_rules" in update:
+                update["reward_rules"] = [
+                    r.model_dump() if hasattr(r, "model_dump") else r
+                    for r in update["reward_rules"]
+                ]
 
-        update_data["version"] = effective_client_version + 1
+            # Clear the irrelevant cadence field when the type changes, and make
+            # sure the relevant one ends up set — goals_shape requires exactly
+            # one, and a type switch that omits it would otherwise write a row
+            # with neither. Fall back to the stored value, then to a sane
+            # default (1 slot/day, 1 time/week).
+            new_type = update.get("type") or current["type"]
+            if new_type == "daily":
+                update["times_per_week"] = None
+                if update.get("times_per_day") is None:
+                    update["times_per_day"] = current["times_per_day"] or 1
+            elif new_type == "weekly_x":
+                update["times_per_day"] = None
+                if update.get("times_per_week") is None:
+                    update["times_per_week"] = current["times_per_week"] or 1
 
-        # Separate None values for $unset
-        unset_data = {k: "" for k, v in update_data.items() if v is None}
-        set_data = {k: v for k, v in update_data.items() if v is not None}
+            update["version"] = effective_client_version + 1
 
-        mongo_update = {"$set": set_data}
-        if unset_data:
-            mongo_update["$unset"] = unset_data
+            casts = {"type": "::goal_type", "reward_rules": "::jsonb"}
+            cols = list(update.keys())
+            assignments = ", ".join(
+                f'"{c}" = ${i + 1}{casts.get(c, "")}' for i, c in enumerate(cols)
+            )
+            values = [update[c] for c in cols]
 
-        await db.goals.update_one({"_id": ObjectId(goal_id)}, mongo_update)
-        updated = await db.goals.find_one({"_id": ObjectId(goal_id)})
+            tz, first_day = await get_settings_cached(conn)
+            today = get_today(tz)
+            week_start = get_week_start(today, first_day)
+            week_end = get_week_end(week_start)
 
-        tz, first_day = await get_settings_cached(db)
-        week_start = get_week_start(get_today(tz), first_day)
-        week_end = get_week_end(week_start)
+            async with conn.transaction():
+                seq = await consume_client_seq(conn, request)
 
-        entry = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
-        enabled = entry.get("enabled", True) if entry else True
-
-        snapshot = {
-            "name": updated.get("name"),
-            "order": updated.get("order", 0),
-            "type": updated.get("type"),
-            "is_negative": updated.get("is_negative", False),
-            "times_per_day": updated.get("times_per_day"),
-            "times_per_week": updated.get("times_per_week"),
-            "reward_rules": updated.get("reward_rules", []),
-        }
-        await db.goal_weeks.update_one(
-            {"goal_id": goal_id, "week_start": week_start},
-            {"$set": {"snapshot": snapshot}},
-        )
-
-        old_tpd = current.get("times_per_day")
-        old_type = current.get("type")
-        new_tpd = updated.get("times_per_day")
-        new_type = updated.get("type")
-        new_is_negative = updated.get("is_negative", False)
-
-        if new_type == "daily":
-            if old_type != "daily":
-                # Type changed to daily — reconcile handles existing slots correctly
-                await reconcile_slots_for_goal(db, goal_id, week_start, get_today(tz), new_tpd or 1, new_is_negative)
-            elif old_tpd != new_tpd and new_tpd:
-                # times_per_day changed — reconcile existing slots
-                await reconcile_slots_for_goal(db, goal_id, week_start, week_end, new_tpd, new_is_negative)
-        elif new_type == "weekly_x" and old_type == "daily":
-            # Type changed to weekly_x — collapse slots to single slot per day
-            from datetime import date as Date, timedelta
-            current_date = Date.fromisoformat(week_start)
-            end_date = Date.fromisoformat(week_end)
-            while current_date <= end_date:
-                date_str = current_date.isoformat()
-                doc = await db.logs.find_one({"goal_id": goal_id, "date": date_str})
-                if doc and len(doc["slots"]) > 1:
-                    slots = doc["slots"]
-                    if new_is_negative:
-                        # Negative: failed if ANY slot was false
-                        collapsed = [all(slots)]
-                    else:
-                        # Positive: succeeded if ANY slot was true
-                        collapsed = [any(slots)]
-                    await db.logs.update_one(
-                        {"goal_id": goal_id, "date": date_str},
-                        {"$set": {"slots": collapsed}}
+                try:
+                    # The version predicate makes check-and-write atomic. The
+                    # read above can go stale between check and UPDATE, so
+                    # without it two concurrent edits both pass validation and
+                    # the second silently overwrites the first.
+                    updated = await conn.fetchrow(
+                        f"UPDATE goals SET {assignments} "
+                        f"WHERE id = ${len(cols) + 1} AND version = ${len(cols) + 2} "
+                        f"RETURNING {GOAL_COLS}",
+                        *values, gid, effective_client_version,
                     )
-                current_date += timedelta(days=1)
+                except asyncpg.UniqueViolationError:
+                    raise HTTPException(
+                        status_code=422, detail="A goal with this name already exists"
+                    )
 
-        goal_week_doc = await db.goal_weeks.find_one({"goal_id": goal_id, "week_start": week_start})
-        goal_logs = await get_goal_week_logs(db, goal_id, week_start, week_end)
+                if updated is None:
+                    # Zero rows matched: another writer bumped version between
+                    # our read and this UPDATE.
+                    logger.warning(f"Lost update race on goal {gid}")
+                    raise HTTPException(status_code=409, detail="Out of sync. Please reload.")
+
+                await upsert_snapshot(conn, gid, week_start, updated)
+
+                old_tpd = current["times_per_day"]
+                old_type = current["type"]
+                new_tpd = updated["times_per_day"]
+                new_type = updated["type"]
+                new_is_negative = updated["is_negative"]
+
+                if new_type == "daily":
+                    if old_type != "daily":
+                        # Type changed to daily — reconcile handles existing slots.
+                        await reconcile_slots_for_goal(
+                            conn, gid, week_start, today, new_tpd or 1, new_is_negative
+                        )
+                    elif old_tpd != new_tpd and new_tpd:
+                        await reconcile_slots_for_goal(
+                            conn, gid, week_start, week_end, new_tpd, new_is_negative
+                        )
+                elif new_type == "weekly_x" and old_type == "daily":
+                    # Collapse multi-slot days to a single slot. Negative goals
+                    # count as kept only if every slot held; positive goals count
+                    # as done if any slot was done.
+                    # COALESCE guards the NULL case: ALL/ANY over an array
+                    # containing NULL evaluates to NULL, which would write
+                    # ARRAY[NULL] and break List[bool] on every later read.
+                    await conn.execute(
+                        """
+                        UPDATE logs
+                        SET slots = CASE WHEN $4
+                                THEN ARRAY[COALESCE(true = ALL(slots), FALSE)]
+                                ELSE ARRAY[COALESCE(true = ANY(slots), FALSE)] END
+                        WHERE goal_id = $1 AND date BETWEEN $2 AND $3
+                          AND cardinality(slots) > 1
+                        """,
+                        gid, to_date(week_start), to_date(week_end), new_is_negative,
+                    )
+
+            entry = await conn.fetchrow(
+                "SELECT goal_id, week_start, enabled, snapshot FROM goal_weeks WHERE goal_id = $1 AND week_start = $2",
+                gid, to_date(week_start),
+            )
+            enabled = entry["enabled"] if entry else True
+            goal_logs = await get_goal_week_logs(conn, gid, week_start, week_end)
 
         payload = GoalChangedPayload(
             action="updated",
-            goal=goal_from_doc(updated, enabled),
-            goal_week=goal_week_from_doc(goal_week_doc),
+            goal=goal_from_row(updated, enabled),
+            goal_week=goal_week_from_row(entry) if entry else None,
             logs=goal_logs,
             week_start=week_start,
             seq=seq,
         )
 
-        logger.info(f"Updated goal: {goal_id} version={update_data['version']}")
+        logger.info(f"Updated goal: {gid} version={update['version']}")
         session_id = request.headers.get("X-Session-ID")
         await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
         return payload
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update goal {goal_id}: {e}")
+        logger.error(f"Failed to update goal {gid}: {e}")
         raise
 
 
 @router.delete("/{goal_id}", response_model=GoalChangedPayload)
 async def delete_goal(goal_id: str, request: Request):
+    gid = parse_goal_id(goal_id)
     try:
-        db = get_db()
-        seq = await consume_client_seq(request)
-        tz, first_day = await get_settings_cached(db)
-        today = get_today(tz)
-        week_start = get_week_start(today, first_day)
-        week_end = get_week_end(week_start)
+        pool = get_db()
+        async with pool.acquire() as conn:
+            tz, first_day = await get_settings_cached(conn)
+            today = get_today(tz)
+            week_start = get_week_start(today, first_day)
+            week_end = get_week_end(week_start)
 
-        # Hard delete the goal
-        await db.goals.delete_one({"_id": ObjectId(goal_id)})
-        # Delete current week goal_weeks only — past weeks keep their snapshot
-        await db.goal_weeks.delete_many({"goal_id": goal_id, "week_start": week_start})
-        # Delete current week logs only — past weeks keep their logs
-        await db.logs.delete_many({"goal_id": goal_id, "date": {"$gte": week_start, "$lte": week_end}})
+            parse_client_seq(request)
 
-        # Reorder remaining goals to fill the gap — only write if order changed
-        remaining = await db.goals.find({}).sort("order", 1).to_list(None)
-        reordered_goals = []
-        for i, g in enumerate(remaining):
-            gid = str(g["_id"])
-            if g.get("order") != i:
-                await db.goals.update_one({"_id": g["_id"]}, {"$set": {"order": i}})
-                await db.goal_weeks.update_one(
-                    {"goal_id": gid, "week_start": week_start},
-                    {"$set": {"snapshot.order": i}},
+            async with conn.transaction():
+                seq = await consume_client_seq(conn, request)
+
+                # Hard delete the goal. Past weeks keep their goal_weeks rows
+                # and logs — those render from the frozen snapshot, which is
+                # why neither table has a cascading FK.
+                await conn.execute("DELETE FROM goals WHERE id = $1", gid)
+                await conn.execute(
+                    "DELETE FROM goal_weeks WHERE goal_id = $1 AND week_start = $2",
+                    gid, to_date(week_start),
                 )
-            reordered_goals.append({"goal_id": gid, "new_order": i})
+                await conn.execute(
+                    "DELETE FROM logs WHERE goal_id = $1 AND date BETWEEN $2 AND $3",
+                    gid, to_date(week_start), to_date(week_end),
+                )
+
+                # Close the gap in ordering. ROW_NUMBER assigns the compacted
+                # positions; the WHERE skips rows already in place.
+                reordered = await conn.fetch(
+                    """
+                    WITH ranked AS (
+                        SELECT id, (ROW_NUMBER() OVER (ORDER BY "order") - 1)::int AS new_order
+                        FROM goals
+                    )
+                    UPDATE goals g SET "order" = r.new_order
+                    FROM ranked r
+                    WHERE g.id = r.id AND g."order" <> r.new_order
+                    RETURNING g.id, g."order" AS new_order
+                    """
+                )
+
+                # Keep the current week's snapshots consistent with new ordering.
+                for r in reordered:
+                    await conn.execute(
+                        """
+                        UPDATE goal_weeks
+                        SET snapshot = jsonb_set(snapshot, '{order}', to_jsonb($3::int))
+                        WHERE goal_id = $1 AND week_start = $2
+                        """,
+                        r["id"], to_date(week_start), r["new_order"],
+                    )
+
+                # The payload must list every remaining goal's position, not
+                # just the ones that moved.
+                all_goals = await conn.fetch('SELECT id, "order" FROM goals ORDER BY "order"')
+
+        reordered_goals = [
+            {"goal_id": str(g["id"]), "new_order": g["order"]} for g in all_goals
+        ]
 
         payload = GoalChangedPayload(
             action="deleted",
-            goal_id=goal_id,
+            goal_id=str(gid),
             week_start=week_start,
             seq=seq,
             reordered_goals=reordered_goals,
         )
 
-        logger.info(f"Deleted goal: {goal_id}, reordered {len(reordered_goals)} remaining goals")
+        logger.info(f"Deleted goal: {gid}, reordered {len(reordered_goals)} remaining goals")
         session_id = request.headers.get("X-Session-ID")
         await broadcast("goal_changed", payload.model_dump(), exclude_session=session_id)
         return payload
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete goal {goal_id}: {e}")
+        logger.error(f"Failed to delete goal {gid}: {e}")
         raise
 
 
 @router.put("/reorder/batch")
 async def reorder_goals(body: list[dict], request: Request):
     try:
-        db = get_db()
-        seq = await consume_client_seq(request)
-        tz, first_day = await get_settings_cached(db)
-        week_start = get_week_start(get_today(tz), first_day)
+        pool = get_db()
+        async with pool.acquire() as conn:
+            tz, first_day = await get_settings_cached(conn)
+            week_start = get_week_start(get_today(tz), first_day)
 
-        payloads = []
-        for item in body:
-            gid = item["goal_id"]
-            new_order = item["new_order"]
-            await db.goals.update_one({"_id": ObjectId(gid)}, {"$set": {"order": new_order}})
-            await db.goal_weeks.update_one(
-                {"goal_id": gid, "week_start": week_start},
-                {"$set": {"snapshot.order": new_order}},
-            )
-            payloads.append(GoalChangedPayload(
+            parse_client_seq(request)
+
+            items = [(parse_goal_id(str(i["goal_id"])), int(i["new_order"])) for i in body]
+
+            async with conn.transaction():
+                seq = await consume_client_seq(conn, request)
+
+                for gid, new_order in items:
+                    await conn.execute(
+                        'UPDATE goals SET "order" = $2 WHERE id = $1', gid, new_order
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE goal_weeks
+                        SET snapshot = jsonb_set(snapshot, '{order}', to_jsonb($3::int))
+                        WHERE goal_id = $1 AND week_start = $2
+                        """,
+                        gid, to_date(week_start), new_order,
+                    )
+
+        payloads = [
+            GoalChangedPayload(
                 action="reordered",
-                goal_id=gid,
+                goal_id=str(gid),
                 new_order=new_order,
                 week_start=week_start,
                 seq=seq,
-            ))
+            )
+            for gid, new_order in items
+        ]
 
         session_id = request.headers.get("X-Session-ID")
         await broadcast("goal_changed", [p.model_dump() for p in payloads], exclude_session=session_id)
