@@ -179,6 +179,7 @@ class AppViewModel @Inject constructor(
     private var lastSeq: Long = 0L
     private val gson = Gson()
     private var sseJob: Job? = null
+    private var weekJob: Job? = null
     private var sseRetryDelay = 1000L
     // Set true while a gap-triggered resync is in flight so further SSE events
     // are dropped instead of advancing `lastSeq` past the soon-to-be-fetched
@@ -262,7 +263,12 @@ class AppViewModel @Inject constructor(
     }
 
     fun loadWeek(weekStart: String) {
-        viewModelScope.launch {
+        // Cancel any in-flight week fetch. Two callers can request a week almost
+        // simultaneously (loadData(preserveWeekStart) and the UI's week effect), and
+        // during fast navigation an older response could otherwise land after a newer
+        // one and install the wrong week.
+        weekJob?.cancel()
+        weekJob = viewModelScope.launch {
             when (val result = repository.getWeekData(weekStart)) {
                 is ApiResult.Success -> {
                     val data = result.data
@@ -618,7 +624,6 @@ class AppViewModel @Inject constructor(
         _uiState.update { it.copy(toast = null) }
     }
 
-    // Called when app comes to foreground
     fun onPause() {
         // Keep SSE running if a widget exists, so web/other-device toggles reach
         // the widget while the process is still alive. Otherwise cancel to save battery.
@@ -628,10 +633,13 @@ class AppViewModel @Inject constructor(
         }
     }
 
-    fun onResume() {
+    // Called when app comes to foreground. preserveWeekStart is the week the UI is
+    // actually displaying — /api/init only returns the current week, so without it a
+    // resume while viewing a past week would load the wrong data and strand the UI.
+    fun onResume(preserveWeekStart: String? = null) {
         // Refresh today from device clock — SSE day_changed may have fired while paused
         _uiState.update { it.copy(today = com.goals.app.widget.WidgetClock.today(it.settings)) }
-        loadData()
+        loadData(preserveWeekStart = preserveWeekStart)
     }
 
     override fun onCleared() {

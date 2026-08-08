@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -90,8 +91,15 @@ fun GoalsApp(
     val tab = tabs[pagerState.currentPage]
     // Start with device today so the first composition has a parseable date; once
     // settings load we re-align to the server-tz today (which may differ).
-    var selectedDate by remember { mutableStateOf(LocalDate.now().format(fmt)) }
-    var alignedToServer by remember { mutableStateOf(false) }
+    // Saveable, not plain remember: these must survive Activity recreation
+    // (rotation, config change, process-death restore). With `remember` a rotation
+    // reset hasResumedOnce and snapped the user back to today — the same bug as the
+    // minimize/resume clobber, just via a different trigger.
+    var selectedDate by rememberSaveable { mutableStateOf(LocalDate.now().format(fmt)) }
+    var alignedToServer by rememberSaveable { mutableStateOf(false) }
+
+    val settings = uiState.settings
+    val firstDay = settings?.firstDayOfWeek ?: "sunday"
 
     LaunchedEffect(uiState.today) {
         if (!alignedToServer && uiState.today.isNotEmpty()) {
@@ -100,22 +108,37 @@ fun GoalsApp(
         }
     }
 
-    // Kill SSE on pause, full reload on resume. Normally we reset the selected date
-    // to today on resume; but if we were opened from the widget we land on the date
-    // the widget was showing instead. onNewIntent sets launchDate before onResume,
-    // so reading it here picks up a warm-launch tap too.
+    // Kill SSE on pause, full reload on resume.
+    //
+    // The selected date is only ever set here on a *cold* start (→ today) or when a
+    // widget tap hands us a date. Returning from the background must preserve whatever
+    // day the user was on: repeatOnLifecycle re-runs this block on every resume, and
+    // unconditionally resetting to today was throwing away the user's selection every
+    // time the app was minimized and reopened.
+    //
+    // onNewIntent sets launchDate before onResume, so reading it here catches a warm
+    // widget tap too.
+    var hasResumedOnce by rememberSaveable { mutableStateOf(false) }
+    // This effect is keyed only on `lifecycle`, so it launches before settings arrive
+    // and would otherwise capture firstDay's "sunday" default forever — sending Monday
+    // users the wrong week on every resume.
+    val currentFirstDay by rememberUpdatedState(firstDay)
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             val fromWidget = launchDate.value
-            if (!fromWidget.isNullOrEmpty()) {
-                selectedDate = fromWidget
-                alignedToServer = true  // don't let the today-sync effect clobber it
-                launchDate.value = null
-            } else {
-                val serverToday = viewModel.uiState.value.today
-                selectedDate = serverToday.ifEmpty { LocalDate.now().format(fmt) }
+            val target = when {
+                !fromWidget.isNullOrEmpty() -> fromWidget
+                !hasResumedOnce -> viewModel.uiState.value.today.ifEmpty { LocalDate.now().format(fmt) }
+                else -> null  // returning from background — keep the user's selection
             }
-            viewModel.onResume()
+            if (target != null) {
+                selectedDate = target
+                alignedToServer = true  // don't let the today-sync effect clobber it
+            }
+            launchDate.value = null
+            hasResumedOnce = true
+            // Reload the week we're actually showing, not just the current one.
+            viewModel.onResume(preserveWeekStart = getWeekStart(selectedDate, currentFirstDay))
             try {
                 awaitCancellation()
             } finally {
@@ -124,12 +147,11 @@ fun GoalsApp(
         }
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.loadData()
-    }
+    // No separate initial loadData() here: the RESUMED effect above already loads on
+    // first resume, and with the correct week to preserve. Having both meant two
+    // concurrent /api/init calls on every cold start, whose responses could land in
+    // either order.
 
-    val settings = uiState.settings
-    val firstDay = settings?.firstDayOfWeek ?: "sunday"
     val currency = settings?.currency ?: "NIS"
     val today = uiState.today
     val appTitle = com.goals.app.BuildConfig.FLAVOR.uppercase().let {
@@ -144,9 +166,14 @@ fun GoalsApp(
         LocalDate.parse(weekStart, fmt).plusDays(6).format(fmt)
     }
 
-    // Load week data when weekStart changes
+    // Load week data whenever the week we want and the week we have disagree.
+    // Keyed on both: loadData() replaces uiState.week with the *current* week, so a
+    // widget tap onto a past date could leave weekStart pointing at the tapped week
+    // while the loaded data was the current one. Keying only on weekStart meant the
+    // effect never re-ran to correct it, and the UI sat at "0%" until the user
+    // navigated to another week and back.
     val visibleWeekStart = uiState.week.weekStart
-    LaunchedEffect(weekStart) {
+    LaunchedEffect(weekStart, visibleWeekStart) {
         if (visibleWeekStart != weekStart) {
             viewModel.loadWeek(weekStart)
         }
