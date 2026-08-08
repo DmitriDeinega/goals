@@ -36,7 +36,7 @@ android {
         }
         create("prod") {
             dimension = "env"
-            buildConfigField("String", "SERVER_URL", "\"https://goals.63-181-3-204.sslip.io/\"")
+            buildConfigField("String", "SERVER_URL", "\"https://goals.fermats-eco.tail164998.ts.net/\"")
         }
     }
 

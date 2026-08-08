@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Cleartext is permitted only for the dev flavor's LAN server. PROD is
+         HTTPS on the Tailscale hostname, which needs no exception here. -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">192.168.1.4</domain>
-        <domain includeSubdomains="true">63.181.3.204</domain>
     </domain-config>
 </network-security-config>
