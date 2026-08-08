@@ -118,7 +118,9 @@ fun GoalsApp(
     //
     // onNewIntent sets launchDate before onResume, so reading it here catches a warm
     // widget tap too.
-    var hasResumedOnce by rememberSaveable { mutableStateOf(false) }
+    // Lives in the ViewModel, not rememberSaveable: it must survive rotation (so a
+    // rotation keeps the user's day) but NOT process death (so being killed in the
+    // background and relaunched lands on today rather than restoring a stale day).
     // This effect is keyed only on `lifecycle`, so it launches before settings arrive
     // and would otherwise capture firstDay's "sunday" default forever — sending Monday
     // users the wrong week on every resume.
@@ -126,17 +128,24 @@ fun GoalsApp(
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             val fromWidget = launchDate.value
+            val freshStart = !viewModel.hasResumedOnce
             val target = when {
                 !fromWidget.isNullOrEmpty() -> fromWidget
-                !hasResumedOnce -> viewModel.uiState.value.today.ifEmpty { LocalDate.now().format(fmt) }
+                // Fresh start: prefer the server-tz today. It's usually not loaded
+                // yet, so fall back to the device date and leave alignedToServer
+                // false — the today-sync effect then corrects it once settings land.
+                freshStart -> viewModel.uiState.value.today
                 else -> null  // returning from background — keep the user's selection
             }
-            if (target != null) {
+            if (!target.isNullOrEmpty()) {
                 selectedDate = target
                 alignedToServer = true  // don't let the today-sync effect clobber it
+            } else if (freshStart) {
+                selectedDate = LocalDate.now().format(fmt)
+                alignedToServer = false  // let the server's today win when it arrives
             }
             launchDate.value = null
-            hasResumedOnce = true
+            viewModel.markResumed()
             // Reload the week we're actually showing, not just the current one.
             viewModel.onResume(preserveWeekStart = getWeekStart(selectedDate, currentFirstDay))
             try {
@@ -265,13 +274,19 @@ fun GoalsApp(
                     "today" -> TodayScreen(
                         inFlightToggles = uiState.inFlightToggles,
                         goals = uiState.goals,
-                        goalWeeks = uiState.week.goalWeeks,
-                        logs = uiState.week.logs,
+                        // While a week is loading, show no rows rather than the previous
+                        // week's — stale counts beside the new week's dates read as real
+                        // data for the wrong week.
+                        goalWeeks = if (weekReady) uiState.week.goalWeeks else emptyList(),
+                        logs = if (weekReady) uiState.week.logs else emptyList(),
                         selectedDate = selectedDate,
-                        weekStart = if (weekReady) weekStart else (visibleWeekStart ?: weekStart),
+                        // Always the week we intend to show. Falling back to the loaded
+                        // week made the day strip jump to the old week mid-navigation.
+                        weekStart = weekStart,
                         today = today,
                         settings = settings,
                         weekSummary = weekSummary,
+                        weekLoading = !weekReady,
                         currency = currency,
                         onDaySelected = { date -> selectedDate = date },
                         onPrevWeek = {

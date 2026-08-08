@@ -50,6 +50,11 @@ class GoalsRepository @Inject constructor(
             } else {
                 ApiResult.Error(response.message() ?: "Unknown error", response.code())
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancellation is control flow, not a failure: a superseded request must
+            // stay cancelled and must never surface as a toast. Swallowing it here
+            // also broke structured concurrency by resuming a cancelled scope.
+            throw e
         } catch (e: Exception) {
             ApiResult.Error(e.message ?: "Network error")
         }

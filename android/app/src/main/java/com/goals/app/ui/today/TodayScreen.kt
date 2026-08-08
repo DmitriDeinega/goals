@@ -31,6 +31,9 @@ fun TodayScreen(
     settings: AppSettings?,
     weekSummary: WeekSummary?,
     currency: String,
+    /** True while this week's data is in flight. Distinguishes "still loading" from
+     *  "loaded and genuinely empty", which otherwise both render as no rows. */
+    weekLoading: Boolean = false,
     onDaySelected: (String) -> Unit,
     onPrevWeek: () -> Unit,
     onNextWeek: () -> Unit,
@@ -77,8 +80,23 @@ fun TodayScreen(
             Spacer(Modifier.height(8.dp))
         }
 
-        // Goal rows or empty state
-        if (displayGoals.isEmpty()) {
+        // Goal rows, loading state, or empty state
+        if (weekLoading) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 60.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        color = AccentColor,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        } else if (displayGoals.isEmpty()) {
             item {
                 Box(
                     modifier = Modifier

@@ -180,6 +180,21 @@ class AppViewModel @Inject constructor(
     private val gson = Gson()
     private var sseJob: Job? = null
     private var weekJob: Job? = null
+
+    /**
+     * Whether the UI has already resumed once against *this* ViewModel.
+     *
+     * Scopes the "reset the selected date to today" behaviour to a genuine fresh
+     * start. Deliberately held here rather than in rememberSaveable: the ViewModel
+     * survives Activity recreation (rotation, config change), so a rotation keeps
+     * the user's selected day, but it does NOT survive process death, so being
+     * killed in the background and relaunched correctly behaves like a cold start
+     * and lands on today instead of restoring a stale day.
+     */
+    var hasResumedOnce: Boolean = false
+        private set
+
+    fun markResumed() { hasResumedOnce = true }
     private var sseRetryDelay = 1000L
     // Set true while a gap-triggered resync is in flight so further SSE events
     // are dropped instead of advancing `lastSeq` past the soon-to-be-fetched

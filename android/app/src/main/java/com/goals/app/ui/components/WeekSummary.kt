@@ -20,6 +20,10 @@ fun WeekSummarySection(
     currency: String,
     modifier: Modifier = Modifier
 ) {
+    // A null summary means "this week's data hasn't arrived yet" — render that as a
+    // loading state, never as 0%. Coercing null to 0 showed a real-looking zero that
+    // then jumped to the true value, which reads as wrong data rather than as loading.
+    val loading = summary == null
     val pct = summary?.pct ?: 0
     val earned = summary?.totalEarned ?: 0.0
     val currencySymbol = if (currency == "NIS") "₪" else "$"
@@ -36,7 +40,7 @@ fun WeekSummarySection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "THIS WEEK · $pct%",
+                    text = if (loading) "THIS WEEK · ···" else "THIS WEEK · $pct%",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.15.sp,
@@ -66,12 +70,17 @@ fun WeekSummarySection(
                 .clip(RoundedCornerShape(2.dp))
                 .background(Border2Color)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth((pct / 100f).coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(AccentColor)
-            )
+            // While loading, leave the track bare rather than drawing a zero-width
+            // accent fill — an empty accent bar is exactly the "0%" signal we're
+            // trying not to send.
+            if (!loading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth((pct / 100f).coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(AccentColor)
+                )
+            }
         }
     }
 }
