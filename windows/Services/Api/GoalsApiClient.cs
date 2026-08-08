@@ -30,7 +30,7 @@ public sealed class GoalsApiClient : IDisposable
     public const string BaseUrl = "http://localhost:2200";
     public const string AppTitle = "GOALS DEV";
 #elif PROD
-    public const string BaseUrl = "https://goals.fermats-eco.tail164998.ts.net";
+    public const string BaseUrl = "https://fermats-eco.tail164998.ts.net:2443";
     public const string AppTitle = "GOALS";
 #else
 #error "Build with -c DEV or -c PROD — Debug/Release are not configured."

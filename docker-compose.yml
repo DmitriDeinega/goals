@@ -27,9 +27,9 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      # Bind to localhost only — HTTPS is terminated in front of this
-      # (goals.fermats-eco.tail164998.ts.net) and reverse-proxied to
-      # 127.0.0.1:2200. Never expose this port directly.
+      # Bind to localhost only — HTTPS is terminated by `tailscale serve` in
+      # front of this (fermats-eco.tail164998.ts.net:2443) and reverse-proxied
+      # to 127.0.0.1:2200. Never expose this port directly.
       - "127.0.0.1:2200:2200"
     env_file:
       - backend/.env

@@ -36,7 +36,7 @@ android {
         }
         create("prod") {
             dimension = "env"
-            buildConfigField("String", "SERVER_URL", "\"https://goals.fermats-eco.tail164998.ts.net/\"")
+            buildConfigField("String", "SERVER_URL", "\"https://fermats-eco.tail164998.ts.net:2443/\"")
         }
     }
 
